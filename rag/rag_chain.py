@@ -25,6 +25,10 @@ class RAGChain:
 Use the following pieces of context to answer the question at the end.
 If you don't know the answer, just say that you don't know, don't try to make up an answer.
 
+When referencing information from the context, you can refer to:
+- FAQ questions by their exact question text
+- Knowledge Base articles by their article titles
+
 Context:
 {{context}}
 
@@ -59,17 +63,36 @@ Helpful Answer:"""
         # Add project identification
         project_identification = f"Answer for project: {project_name} (ID: {project_id})\n\n"
         
-        # Add source citations
+        # Add source citations with improved formatting
         sources = []
-        for doc in context_docs[:2]:  # Limit to top 2 sources
+        seen_sources = set()  # Avoid duplicate sources
+        
+        for doc in context_docs:
+            source_key = None
+            source_text = None
+            
             if doc.metadata["source"] == "faq":
-                sources.append(f"FAQ: {doc.metadata['question']}")
-            else:
-                sources.append(f"KB: {doc.metadata['article_title']} (Section {doc.metadata['chunk_id']+1}/{doc.metadata['total_chunks']})")
+                source_key = f"faq:{doc.metadata.get('question', 'Unknown Question')}"
+                source_text = f"FAQ: \"{doc.metadata.get('question', 'Unknown Question')}\""
+            elif doc.metadata["source"] == "kb":
+                article_title = doc.metadata.get('article_title', 'Unknown Article')
+                chunk_info = ""
+                if 'chunk_id' in doc.metadata and 'total_chunks' in doc.metadata:
+                    chunk_info = f" (Section {doc.metadata['chunk_id']+1} of {doc.metadata['total_chunks']})"
+                source_key = f"kb:{article_title}"
+                source_text = f"KB Article: \"{article_title}\"{chunk_info}"
+            
+            # Add unique sources only
+            if source_key and source_key not in seen_sources:
+                sources.append(source_text)
+                seen_sources.add(source_key)
+                # Limit to top 5 unique sources for readability
+                if len(sources) >= 5:
+                    break
         
         formatted_answer = project_identification + answer
         
         if sources:
-            formatted_answer += "\n\nSources:\n- " + "\n- ".join(sources)
+            formatted_answer += "\n\n**Sources:**\n- " + "\n- ".join(sources)
         
         return formatted_answer
