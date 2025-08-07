@@ -9,9 +9,12 @@ class DataProcessor:
     
     def __init__(self, settings):
         self.settings = settings
+        # Configure text splitter for paragraph-based chunking
+        # Prioritize paragraph breaks (\n\n) over other separators
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.settings.CHUNK_SIZE,
-            chunk_overlap=self.settings.CHUNK_OVERLAP
+            chunk_overlap=self.settings.CHUNK_OVERLAP,
+            separators=["\n\n", "\n", ". ", "? ", "! ", " ", ""]  # Prioritize paragraphs, then sentences, then smaller units
         )
     
     def stream_large_json(self, file_path):
@@ -101,8 +104,10 @@ class DataProcessor:
                 "source": source_type,
                 "question": item["question"]
             }
+            # Include question in content for better context during retrieval
+            content = f"Q: {item['question']}\n\nA: {item['answer']}"
             return Document(
-                page_content=item["answer"],
+                page_content=content,
                 metadata=safe_metadata
             )
         
@@ -119,8 +124,10 @@ class DataProcessor:
                 "article_id": article_id,
                 "article_title": article_title
             }
+            # Include article title in content for better context during retrieval
+            content = f"Article: {article_title}\n\n{item['content']}"
             return Document(
-                page_content=item["content"],
+                page_content=content,
                 metadata=safe_metadata
             )
         
@@ -195,15 +202,22 @@ class DataProcessor:
                 if not doc:
                     continue
                 
-                # Split content into chunks
-                chunks = self.text_splitter.split_text(doc.page_content)
+                # Split content into chunks while preserving article context
+                full_content = doc.page_content
+                chunks = self.text_splitter.split_text(full_content)
                 for i, chunk in enumerate(chunks):
                     # Extract article ID and title from original metadata
                     article_id = doc.metadata.get("article_id", "unknown")
                     article_title = doc.metadata.get("article_title", "Unknown Article")
                     
+                    # Ensure article title is at the beginning of each chunk for context
+                    if not chunk.startswith(f"Article: {article_title}"):
+                        chunk_content = f"Article: {article_title}\n\n{chunk}"
+                    else:
+                        chunk_content = chunk
+                    
                     documents.append(Document(
-                        page_content=chunk,
+                        page_content=chunk_content,
                         metadata={
                             "project_id": project_id,
                             "source": "kb",
@@ -223,15 +237,22 @@ class DataProcessor:
                     if not doc:
                         continue
                     
-                    # Split content into chunks
-                    chunks = self.text_splitter.split_text(doc.page_content)
+                    # Split content into chunks while preserving article context
+                    full_content = doc.page_content
+                    chunks = self.text_splitter.split_text(full_content)
                     for i, chunk in enumerate(chunks):
                         # Extract article ID and title from original metadata
                         article_id = doc.metadata.get("article_id", "unknown")
                         article_title = doc.metadata.get("article_title", "Unknown Article")
                         
+                        # Ensure article title is at the beginning of each chunk for context
+                        if not chunk.startswith(f"Article: {article_title}"):
+                            chunk_content = f"Article: {article_title}\n\n{chunk}"
+                        else:
+                            chunk_content = chunk
+                        
                         documents.append(Document(
-                            page_content=chunk,
+                            page_content=chunk_content,
                             metadata={
                                 "project_id": project_id,
                                 "source": "kb",
