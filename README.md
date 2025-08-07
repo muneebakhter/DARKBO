@@ -19,7 +19,7 @@ files contain article title/content pairs.
 Run the prebuild script to create all vector stores:
 
 ```
-python tools/prebuild_vector_stores.py
+python prebuild_vs.py
 ```
 
 Vector stores are written to the path defined by `VECTOR_STORE_DIR` in
