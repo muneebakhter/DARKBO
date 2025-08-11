@@ -88,6 +88,13 @@ curl -X POST "http://localhost:8000/query" \
   -d '{"project_id": "95", "question": "What does ASPCA stand for?"}'
 ```
 
+### 5. Run Complete Demo
+
+```bash
+# Run the included demo script that shows the full workflow
+./demo.sh
+```
+
 ## 📡 API Endpoints
 
 ### Core Query Endpoint
