@@ -44,11 +44,12 @@ DARKBO has been simplified to a two-script architecture that focuses on the core
 - `GET /v1/projects/{project_id}/faqs/{faq_id}` - Get FAQ by ID (returns attachment file if available, otherwise JSON)
 - `GET /v1/projects/{project_id}/kb/{kb_id}` - Get KB entry by ID (returns attachment file if available, otherwise JSON)
 
-### ✅ 5. Hybrid Search System
-- **Dense Search**: FAISS vector similarity (when dependencies available)
-- **Sparse Search**: Whoosh text search (when dependencies available)
-- **Basic Search**: Keyword matching fallback (no dependencies required)
+### ✅ 5. Hybrid Search System (Confirmed)
+- **Dense Search**: FAISS vector similarity with sentence-transformers (semantic search)
+- **Sparse Search**: Whoosh text search (keyword/BM25-style search)
+- **Basic Search**: Simple keyword matching fallback (no dependencies required)
 - **Smart Fallback**: Gracefully degrades when ML dependencies not available
+- **Hybrid Results**: Combines dense and sparse results, removes duplicates, ranks by relevance
 
 ### ✅ 6. Prebuild System
 - **Index Generation**: Creates dense and sparse indexes for fast retrieval
@@ -198,6 +199,26 @@ curl "http://localhost:8000/v1/projects/95/faqs/1766291f-f2f5-5f01-b1bb-fc95501a
 
 ## Running the Simplified System
 
+### Quick Start
+```bash
+# 1. Generate sample data
+python3 create_sample_data.py
+
+# 2. Change to sample data directory
+cd sample_data
+
+# 3. Build indexes
+python3 ../prebuild_kb.py
+
+# 4. Start server  
+python3 ../ai_worker.py
+
+# 5. Test queries
+curl -X POST "http://localhost:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id": "95", "question": "What does ASPCA stand for?"}'
+```
+
 ### Minimal Installation
 ```bash
 pip install fastapi uvicorn pydantic
@@ -208,14 +229,15 @@ python ai_worker.py    # Start server with basic search
 ### Full Installation  
 ```bash
 pip install fastapi uvicorn pydantic sentence-transformers faiss-cpu whoosh numpy
-python prebuild_kb.py  # Creates full indexes
-python ai_worker.py    # Start server with hybrid search
+python3 create_sample_data.py  # Generate sample data
+cd sample_data
+python3 ../prebuild_kb.py      # Creates full indexes with hybrid search
+python3 ../ai_worker.py        # Start server with hybrid search
 ```
 
-### Testing
+### Alternative Demo
 ```bash
-python test_core.py       # Test core functionality
-python test_ai_worker.py  # Test AI worker functionality
+./demo.sh  # Runs the complete workflow automatically
 ```
 
 ## Configuration

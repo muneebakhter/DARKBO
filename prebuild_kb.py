@@ -24,7 +24,7 @@ except ImportError:
     HAS_DEPS = False
     print("⚠️  Heavy dependencies not available. Creating basic indexes only.")
 
-from api.models_simple import FAQEntry, KBEntry
+from api.models import FAQEntry, KBEntry
 
 
 class IndexBuilder:

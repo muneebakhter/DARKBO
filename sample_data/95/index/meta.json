@@ -1,0 +1,29 @@
+{
+  "project_id": "95",
+  "created_at": "2025-08-11T22:57:41.026822",
+  "counts": {
+    "faqs": 3,
+    "kb_entries": 2,
+    "total": 5
+  },
+  "checksums": {
+    "faqs": "97fec71c63e1a114774e096e6cf8c0d9",
+    "kb_entries": "56a2f18e76da639436555218d7bb8512"
+  },
+  "indexes": {
+    "dense": {
+      "type": "faiss",
+      "path": null,
+      "available": false
+    },
+    "sparse": {
+      "type": "whoosh",
+      "path": null,
+      "available": false
+    }
+  },
+  "versions": {
+    "schema": "1.0",
+    "embedding_model": null
+  }
+}

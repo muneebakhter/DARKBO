@@ -7,7 +7,7 @@ import os
 import json
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
-from api.models_simple import FAQEntry, KBEntry
+from api.models import FAQEntry, KBEntry
 
 
 class FileStorageManager:
