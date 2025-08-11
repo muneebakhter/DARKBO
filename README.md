@@ -1,9 +1,53 @@
 # DARKBO - Document Augmented Retrieval Knowledge Base Operator
 
-A simplified AI knowledge base system with two main scripts:
+A simplified AI knowledge base system with external tools support:
 
 1. **prebuild_kb.py** - Builds vector stores and search indexes from FAQ/KB data
-2. **ai_worker.py** - FastAPI server that answers questions with source citations
+2. **ai_worker.py** - FastAPI server that answers questions with source citations and external tools
+
+## 🛠️ New Tools Framework
+
+DARKBO now supports external tools that can enhance query responses with real-time data:
+
+- **DateTime Tool**: Get current date, time, and timezone information
+- **Web Search Tool**: Search the web for current information using DuckDuckGo
+- **Extensible Framework**: Easy to add new tools for additional capabilities
+
+### Tools Usage Examples
+
+```bash
+# Get current time
+curl -X POST "http://localhost:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id": "95", "question": "What time is it now?"}'
+
+# Get current date  
+curl -X POST "http://localhost:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id": "95", "question": "What date is today?"}'
+
+# Web search (combined with KB knowledge)
+curl -X POST "http://localhost:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id": "95", "question": "What is machine learning?"}'
+```
+
+### Direct Tool Access
+
+```bash
+# List available tools
+curl "http://localhost:8000/tools"
+
+# Execute datetime tool directly
+curl -X POST "http://localhost:8000/tools/datetime" \
+  -H "Content-Type: application/json" \
+  -d '{"format": "%Y-%m-%d %H:%M:%S"}'
+
+# Execute web search tool directly  
+curl -X POST "http://localhost:8000/tools/web_search" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Python programming", "max_results": 3}'
+```
 
 ## 📁 File Structure
 
@@ -118,33 +162,58 @@ curl -X POST "http://localhost:8000/query" \
 
 ## 📡 API Endpoints
 
-### Core Query Endpoint
+### Core Query Endpoint (Enhanced with Tools)
 ```bash
-# Ask a question
+# Ask a question (automatically uses tools when appropriate)
 curl -X POST "http://localhost:8000/query" \
   -H "Content-Type: application/json" \
   -d '{
     "project_id": "95",
-    "question": "What does ASPCA stand for?"
+    "question": "What time is it now?"
   }'
 ```
 
-Response includes answer and sources:
+Response includes answer, sources, and tools used:
 ```json
 {
-  "answer": "American Society for the Prevention of Cruelty to Animals",
-  "sources": [
+  "answer": "The current time is 2025-08-11T23:30:35.898854+00:00.",
+  "sources": [...],
+  "project_id": "95", 
+  "timestamp": "2025-08-11T23:30:35.898938",
+  "tools_used": [
     {
-      "id": "1766291f-f2f5-5f01-b1bb-fc95501ab163",
-      "type": "faq",
-      "title": "FAQ: What does ASPCA stand for?",
-      "url": "/v1/projects/95/faqs/1766291f-f2f5-5f01-b1bb-fc95501ab163",
-      "relevance_score": 0.95
+      "tool_name": "datetime",
+      "parameters": {},
+      "result": {
+        "success": true,
+        "data": {
+          "current_datetime": "2025-08-11T23:30:35.898854+00:00",
+          "weekday": "Monday",
+          ...
+        }
+      },
+      "success": true,
+      "execution_time": 4.076957702636719e-05
     }
-  ],
-  "project_id": "95",
-  "timestamp": "2025-08-11T22:04:11.265860"
+  ]
 }
+```
+
+### Tools Management Endpoints
+
+```bash
+# List available tools
+curl "http://localhost:8000/tools"
+
+# Execute a specific tool
+curl -X POST "http://localhost:8000/tools/datetime" \
+  -H "Content-Type: application/json" \
+  -d '{"format": "%B %d, %Y"}'
+
+# Web search
+curl -X POST "http://localhost:8000/tools/web_search" \
+  -H "Content-Type: application/json" \  
+  -d '{"query": "latest AI news", "max_results": 5}'
 ```
 
 ### Source Retrieval Endpoints
@@ -215,9 +284,11 @@ export OPENAI_API_KEY=your_key_here
 ## 🎯 Key Features
 
 - **Simple Two-Script Architecture**: Just prebuild_kb.py and ai_worker.py
+- **External Tools Support**: DateTime and web search tools with extensible framework
 - **Hybrid Vector Store**: Combines dense (semantic) and sparse (keyword) search when dependencies available
 - **Confirmed Vector Approach**: Uses FAISS for dense vectors + Whoosh for sparse text + basic fallback
 - **Source Citations**: All answers include clickable source links
+- **Tool-Enhanced Responses**: Automatically uses tools to provide current information
 - **File Attachments**: Serves original files when available
 - **Graceful Degradation**: Works with minimal dependencies, enhanced with full dependencies
 - **Fast Setup**: File-based storage, no external databases required
