@@ -26,7 +26,7 @@ try:
 except ImportError:
     HAS_DEPS = False
 
-from api.models_simple import FAQEntry, KBEntry
+from api.models import FAQEntry, KBEntry
 
 
 # Pydantic models for API

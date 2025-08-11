@@ -36,15 +36,30 @@ pip install fastapi uvicorn pydantic sentence-transformers faiss-cpu whoosh nump
 pip install openai
 ```
 
-### 1. Prepare Your Data
+### 1. Generate Sample Data
 
-Create a project mapping file:
+Use the included script to create sample data:
+
 ```bash
-echo -e "95\tASPCA\n175\tACLU" > proj_mapping.txt
+# Generate sample ACLU and ASPCA projects with FAQs, KB entries, and attachments
+python3 create_sample_data.py
 ```
 
-Create project directories with FAQ and KB data:
+This creates a `sample_data/` directory with:
+- Project directories (175/ for ACLU, 95/ for ASPCA)  
+- FAQ and KB JSON files
+- Sample attachments
+- Project mapping file
+
+### 1a. Alternative: Prepare Your Own Data
+
+If you want to use your own data instead of samples:
+
 ```bash
+# Create project mapping file
+echo -e "95\tASPCA\n175\tACLU" > proj_mapping.txt
+
+# Create project directories with FAQ and KB data
 mkdir -p 95 175
 # Add your 95.faq.json, 95.kb.json, 175.faq.json, 175.kb.json files
 ```
@@ -52,7 +67,11 @@ mkdir -p 95 175
 ### 2. Build Knowledge Base Indexes
 
 ```bash
-python prebuild_kb.py
+# Change to the sample_data directory (or your data directory)
+cd sample_data
+
+# Build indexes for all projects
+python3 ../prebuild_kb.py
 ```
 
 This will:
@@ -65,7 +84,8 @@ This will:
 ### 3. Start the AI Worker Server
 
 ```bash
-python ai_worker.py
+# Start server from the data directory
+python3 ../ai_worker.py
 ```
 
 The server will start on `http://localhost:8000` with the following endpoints:
@@ -77,10 +97,11 @@ The server will start on `http://localhost:8000` with the following endpoints:
 ### 4. Test the System
 
 ```bash
-# Test with the included sample data
-cp -r sample_data/* .
-python prebuild_kb.py
-python ai_worker.py
+# Generate sample data and test the complete system
+python3 create_sample_data.py
+cd sample_data
+python3 ../prebuild_kb.py  
+python3 ../ai_worker.py
 
 # In another terminal, test queries:
 curl -X POST "http://localhost:8000/query" \
@@ -143,19 +164,22 @@ curl "http://localhost:8000/projects"
 
 ### Test Core Functionality
 ```bash
-# Test basic models and data processing
-python test_core.py
+# Generate sample data and test complete workflow
+python3 create_sample_data.py
+cd sample_data
+python3 ../prebuild_kb.py
+python3 ../ai_worker.py
 
-# Test AI worker functionality  
-python test_ai_worker.py
+# In another terminal, test queries:
+curl -X POST "http://localhost:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id": "95", "question": "What does ASPCA stand for?"}'
 ```
 
 ### Run Complete Integration Test
 ```bash
-# Copy sample data and run full test
-cp -r sample_data/* .
-python prebuild_kb.py
-python test_ai_worker.py
+# Run automated demo that tests the full system
+./demo.sh
 ```
 
 ## 📦 Dependencies
@@ -191,7 +215,8 @@ export OPENAI_API_KEY=your_key_here
 ## 🎯 Key Features
 
 - **Simple Two-Script Architecture**: Just prebuild_kb.py and ai_worker.py
-- **Hybrid Search**: Combines dense (semantic) and sparse (keyword) search when dependencies available
+- **Hybrid Vector Store**: Combines dense (semantic) and sparse (keyword) search when dependencies available
+- **Confirmed Vector Approach**: Uses FAISS for dense vectors + Whoosh for sparse text + basic fallback
 - **Source Citations**: All answers include clickable source links
 - **File Attachments**: Serves original files when available
 - **Graceful Degradation**: Works with minimal dependencies, enhanced with full dependencies
@@ -201,15 +226,15 @@ export OPENAI_API_KEY=your_key_here
 
 ### prebuild_kb.py
 - Processes FAQ and KB JSON files
-- Builds FAISS dense vector indexes (semantic search)
-- Builds Whoosh sparse text indexes (keyword search) 
+- Builds FAISS dense vector indexes (semantic search) when dependencies available
+- Builds Whoosh sparse text indexes (keyword search) when dependencies available
 - Creates metadata for change detection
-- Works with or without ML dependencies
+- Works with or without ML dependencies (graceful degradation)
 
 ### ai_worker.py
 - FastAPI server with query endpoints
-- Loads prebuilt indexes for fast search
-- Returns answers with source citations
+- Loads prebuilt indexes for fast hybrid search
+- Returns answers with source citations using dense + sparse + basic search
 - Serves attachment files when available
 - Handles multiple projects
 
@@ -249,7 +274,7 @@ export OPENAI_API_KEY=your_key_here
 ## 🎯 Key Features
 
 - **Simplified Architecture**: Just two scripts - prebuild and worker
-- **Hybrid Search**: Combines dense (semantic) and sparse (keyword) search
+- **Hybrid Vector Store**: Combines dense (FAISS semantic) and sparse (Whoosh keyword) search
 - **Source Citations**: All answers include clickable source links
 - **File Attachments**: Serves original files when available
 - **Metadata Tracking**: Checksums and versions for change detection

@@ -9,17 +9,18 @@ echo "========================="
 echo "📦 Step 1: Install minimal dependencies..."
 pip install fastapi uvicorn pydantic
 
-# Step 2: Copy sample data (already available)
-echo "📁 Step 2: Using existing sample data..."
-echo "  Found projects: $(cat proj_mapping.txt)"
+# Step 2: Generate sample data
+echo "📁 Step 2: Generate sample data..."
+python3 create_sample_data.py
 
-# Step 3: Build knowledge base indexes
+# Step 3: Build knowledge base indexes  
 echo "🔧 Step 3: Building knowledge base indexes..."
-python prebuild_kb.py
+cd sample_data
+python3 ../prebuild_kb.py
 
 # Step 4: Start the AI worker in background
 echo "🚀 Step 4: Starting AI worker server..."
-python ai_worker.py &
+python3 ../ai_worker.py &
 SERVER_PID=$!
 
 # Wait for server to start
@@ -53,11 +54,13 @@ curl -s "http://localhost:8000/v1/projects/95/faqs/1766291f-f2f5-5f01-b1bb-fc955
 echo ""
 echo "🛑 Stopping server..."
 kill $SERVER_PID 2>/dev/null || true
+cd ..
 
 echo ""
 echo "✅ Demo completed!"
 echo ""
 echo "🎯 Key takeaways:"
+echo "  - Generate sample data with: python3 create_sample_data.py"
 echo "  - Two scripts only: prebuild_kb.py + ai_worker.py"
 echo "  - Works with minimal dependencies (no ML libraries needed for basic functionality)"
 echo "  - Provides answers with source citations"
