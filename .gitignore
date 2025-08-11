@@ -205,3 +205,15 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# DARKBO specific
+# Vector stores and indexes (generated files)
+*/index/
+vector_stores/
+checkpoints/
+*.index
+*.faiss
+
+# Environment and temp files
+.env
+.envrc
