@@ -165,6 +165,10 @@ class KnowledgeBaseRetriever:
         dense_results = self.search_dense(query, top_k)
         sparse_results = self.search_sparse(query, top_k)
         
+        # If no ML-based search available, use basic text matching
+        if not dense_results and not sparse_results:
+            return self.search_basic(query, top_k)
+        
         # Combine and deduplicate results
         seen_ids = set()
         combined_results = []
@@ -187,6 +191,90 @@ class KnowledgeBaseRetriever:
         combined_results.sort(key=lambda x: x.get('score', 0), reverse=True)
         
         return combined_results[:top_k]
+    
+    def search_basic(self, query: str, top_k: int = 5) -> List[Dict]:
+        """Basic text search fallback when dependencies aren't available"""
+        try:
+            # Load FAQ and KB data directly
+            faqs, kb_entries = self._load_raw_data()
+            
+            results = []
+            query_lower = query.lower()
+            
+            # Search in FAQs
+            for faq in faqs:
+                score = 0
+                question_lower = faq.question.lower()
+                answer_lower = faq.answer.lower()
+                
+                # Simple keyword matching
+                for word in query_lower.split():
+                    if word in question_lower:
+                        score += 2  # Question matches get higher score
+                    if word in answer_lower:
+                        score += 1
+                
+                if score > 0:
+                    results.append({
+                        'id': faq.id,
+                        'type': 'faq',
+                        'score': score,
+                        'question': faq.question,
+                        'answer': faq.answer,
+                        'search_type': 'basic'
+                    })
+            
+            # Search in KB entries
+            for kb in kb_entries:
+                score = 0
+                article_lower = kb.article.lower()
+                content_lower = kb.content.lower()
+                
+                # Simple keyword matching
+                for word in query_lower.split():
+                    if word in article_lower:
+                        score += 2  # Title matches get higher score
+                    if word in content_lower:
+                        score += 1
+                
+                if score > 0:
+                    results.append({
+                        'id': kb.id,
+                        'type': 'kb',
+                        'score': score,
+                        'article': kb.article,
+                        'content': kb.content,
+                        'search_type': 'basic'
+                    })
+            
+            # Sort by score (descending) and return top results
+            results.sort(key=lambda x: x['score'], reverse=True)
+            return results[:top_k]
+            
+        except Exception as e:
+            print(f"Basic search error: {e}")
+            return []
+    
+    def _load_raw_data(self) -> tuple[List[FAQEntry], List[KBEntry]]:
+        """Load raw FAQ and KB data for basic search"""
+        faqs = []
+        kb_entries = []
+        
+        # Load FAQ data
+        faq_file = self.project_dir / f"{self.project_id}.faq.json"
+        if faq_file.exists():
+            with open(faq_file, 'r', encoding='utf-8') as f:
+                faq_data = json.load(f)
+                faqs = [FAQEntry.from_dict(item) for item in faq_data]
+        
+        # Load KB data  
+        kb_file = self.project_dir / f"{self.project_id}.kb.json"
+        if kb_file.exists():
+            with open(kb_file, 'r', encoding='utf-8') as f:
+                kb_data = json.load(f)
+                kb_entries = [KBEntry.from_dict(item) for item in kb_data]
+        
+        return faqs, kb_entries
 
 
 class AIWorker:

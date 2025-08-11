@@ -1,115 +1,114 @@
-# DARKBO - Hybrid Knowledge Graph & Vector Database Implementation
+# DARKBO - Simplified Knowledge Base System Implementation
 
 ## Overview
 
-This implementation transforms DARKBO from a Flask-based frontend to a FastAPI-based hybrid knowledge graph and vector database system as specified in the requirements.
+DARKBO has been simplified to a two-script architecture that focuses on the core use case: building knowledge base indexes and serving queries with source citations.
 
-## Key Features Implemented
+## Simplified Architecture
 
-### ✅ 1. New File Structure
-- `$HOME/proj_mapping.txt` - Tab-separated project ID to name mapping
-- `$HOME/<project_id>/` - Individual project directories
-- `$HOME/<project_id>/<project_id>.faq.json` - FAQ data with stable UUID5 IDs
-- `$HOME/<project_id>/<project_id>.kb.json` - Knowledge base data with stable UUID5 IDs
-- `$HOME/<project_id>/attachments/` - Raw uploaded documents
-- `$HOME/<project_id>/index/dense/` - Dense vector indexes (FAISS)
-- `$HOME/<project_id>/index/sparse/` - Sparse BM25 indexes (Whoosh)
-- `$HOME/<project_id>/index/meta.json` - Index metadata and checksums
+### Core Scripts
+1. **prebuild_kb.py** - Builds vector stores and search indexes from FAQ/KB data
+2. **ai_worker.py** - FastAPI server that answers questions with source citations
+
+### Key Features Implemented
+
+### ✅ 1. File Structure (Optimized)
+- `proj_mapping.txt` - Tab-separated project ID to name mapping
+- `<project_id>/` - Individual project directories
+- `<project_id>/<project_id>.faq.json` - FAQ data with stable UUID5 IDs
+- `<project_id>/<project_id>.kb.json` - Knowledge base data with stable UUID5 IDs
+- `<project_id>/attachments/` - Optional raw uploaded documents
+- `<project_id>/index/dense/` - Dense vector indexes (FAISS) when dependencies available
+- `<project_id>/index/sparse/` - Sparse text indexes (Whoosh) when dependencies available  
+- `<project_id>/index/meta.json` - Index metadata and checksums
 
 ### ✅ 2. Stable UUID5 IDs
 - **FAQ IDs**: `uuid5(NAMESPACE_URL, f"faq:{project_id}:{question.strip()}:{answer.strip()}")`
 - **KB IDs**: `uuid5(NAMESPACE_URL, f"kb:{project_id}:{article}:{sha256(content)}")`
-- Ensures deterministic IDs for reliable upsert/delete operations
+- Ensures deterministic IDs for reliable operations
 
-### ✅ 3. Data Models
+### ✅ 3. Simple Data Models  
 - **FAQEntry**: Question/answer pairs with metadata
 - **KBEntry**: Knowledge base articles with content and metadata
 - **Timestamps**: `created_at`, `updated_at` for all entries
 - **Source tracking**: `source`, `source_file`, `chunk_index`
 
-### ✅ 4. FastAPI Endpoints
+### ✅ 4. Simplified API Endpoints
 
-#### Project Management
-- `POST /v1/projects` - Create/update projects
-- `GET /v1/projects` - List all projects
-- `GET /v1/projects/{project_id}` - Get project details
+#### Core Query System
+- `POST /query` - Ask questions and get answers with source citations
+- `GET /projects` - List available projects  
+- `GET /health` - Health check endpoint
 
-#### Document Ingestion
-- `POST /v1/projects/{project_id}/ingest?type=kb&split=tokens&max_chunk_chars=1200`
-- Supports PDF, DOCX, TXT, Markdown files
-- Multiple splitting modes: tokens, headings, none
-- Automatic FAQ extraction from documents
+#### Source Retrieval
+- `GET /v1/projects/{project_id}/faqs/{faq_id}` - Get FAQ by ID (returns attachment file if available, otherwise JSON)
+- `GET /v1/projects/{project_id}/kb/{kb_id}` - Get KB entry by ID (returns attachment file if available, otherwise JSON)
 
-#### FAQ Management
-- `POST /v1/projects/{project_id}/faqs:batch_upsert` - Batch upsert FAQs
-- `GET /v1/projects/{project_id}/faqs` - Get all FAQs
-- Support for replace mode
+### ✅ 5. Hybrid Search System
+- **Dense Search**: FAISS vector similarity (when dependencies available)
+- **Sparse Search**: Whoosh text search (when dependencies available)
+- **Basic Search**: Keyword matching fallback (no dependencies required)
+- **Smart Fallback**: Gracefully degrades when ML dependencies not available
 
-#### Knowledge Base
-- `GET /v1/projects/{project_id}/kb` - Get all KB entries
-
-#### Query System
-- `POST /v1/query` - Ask questions with structured responses
-- FAQ-first routing with configurable threshold
-- Hybrid retrieval (dense + sparse)
+### ✅ 6. Prebuild System
+- **Index Generation**: Creates dense and sparse indexes for fast retrieval
+- **Metadata Tracking**: Checksums and change detection
+- **Incremental Updates**: Only rebuilds when content changes
+- **Dependency Flexibility**: Works with minimal or full dependencies
 - Structured output with citations and confidence
 
-### ✅ 5. Document Processing Pipeline
-- **PDF Parser**: Using pdfminer.six with LAParams for better extraction
-- **DOCX Parser**: Using python-docx for Word documents
-- **Text Parser**: Plain text and Markdown support
-- **Text Splitter**: Token-based and heading-based splitting
-- **FAQ Extraction**: Heuristic-based Q&A detection
+## Simplified Implementation Details
 
-### ✅ 6. Hybrid Retrieval System
-- **Dense Search**: Sentence transformer embeddings with FAISS
-- **Sparse Search**: BM25 using Whoosh
-- **Combined Scoring**: Weighted combination of sparse and dense results
-- **FAQ-First Routing**: Configurable threshold for direct FAQ responses
-- **Reranking**: Score-based result ordering
+### Two-Script Workflow
 
-### ✅ 7. Atomic Writes & File Locking
-- File-based locking for concurrent access
-- Atomic writes using temporary files + rename
-- Checksum-based change detection
-- Graceful error handling and cleanup
+#### 1. prebuild_kb.py
+- Loads FAQ and KB data from project directories
+- Builds dense vector indexes using sentence-transformers (optional)
+- Builds sparse text indexes using Whoosh (optional) 
+- Creates metadata files with checksums for change detection
+- Works with minimal dependencies (creates metadata-only indexes)
 
-### ✅ 8. Structured Query Responses
+#### 2. ai_worker.py  
+- FastAPI server that loads prebuilt indexes
+- Provides query endpoint with hybrid search
+- Returns answers with source citations
+- Serves attachment files when available
+- Includes basic keyword search fallback
+
+### Query Response Format
 ```json
 {
-  "answer": "...",
-  "mode": "faq|kb",
-  "confidence": 0.0-1.0,
-  "citations": [
+  "answer": "American Society for the Prevention of Cruelty to Animals",
+  "sources": [
     {
-      "type": "faq|kb",
       "id": "uuid5-id",
-      "article": "...",
-      "lines": [12, 28],
-      "score": 0.93
+      "type": "faq",
+      "title": "FAQ: What does ASPCA stand for?",
+      "url": "/v1/projects/95/faqs/uuid5-id",
+      "relevance_score": 0.95
     }
   ],
-  "used_chunks": ["uuid5-id-1", "uuid5-id-2"]
+  "project_id": "95",
+  "timestamp": "2025-08-11T22:04:11.265860"
 }
 ```
 
-## File Structure Example
+## Simplified File Structure
 
 ```
-$HOME/
-├── proj_mapping.txt                    # "175\tACLU\n95\tASPCA"
-├── 175/                                # ACLU project
-│   ├── attachments/
-│   │   └── aclu_rights_guide.txt
-│   ├── index/
-│   │   ├── dense/                      # FAISS indexes
-│   │   ├── sparse/                     # Whoosh indexes
-│   │   └── meta.json                   # Index metadata
-│   ├── 175.faq.json                    # FAQ entries with UUID5 IDs
-│   └── 175.kb.json                     # KB entries with UUID5 IDs
-└── 95/                                 # ASPCA project
+./
+├── proj_mapping.txt                     # "175\tACLU\n95\tASPCA"
+├── 175/                                 # ACLU project
+│   ├── attachments/                     # Optional files
+│   ├── index/                           # Generated during prebuild
+│   │   ├── dense/                       # FAISS indexes (optional)
+│   │   ├── sparse/                      # Whoosh indexes (optional)
+│   │   └── meta.json                    # Index metadata
+│   ├── 175.faq.json                     # FAQ entries with UUID5 IDs
+│   └── 175.kb.json                      # KB entries with UUID5 IDs
+└── 95/                                  # ASPCA project
     ├── attachments/
-    ├── index/
+    ├── index/ 
     ├── 95.faq.json
     └── 95.kb.json
 ```
@@ -142,63 +141,82 @@ curl -X POST "http://localhost:8000/v1/projects/175/faqs:batch_upsert" \
   }'
 ```
 
-### 4. Query System
+## Usage Examples
+
+### 1. Basic Setup
 ```bash
-curl -X POST "http://localhost:8000/v1/query" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "project_id": "175",
-    "question": "What are your phone hours on weekdays?",
-    "mode": "auto",
-    "strict_citations": true
-  }'
+# Create project mapping
+echo -e "95\tASPCA\n175\tACLU" > proj_mapping.txt
+
+# Copy sample data (optional)
+cp -r sample_data/* .
+
+# Build indexes
+python prebuild_kb.py
 ```
 
-## Current Implementation Status
+### 2. Start Server
+```bash
+python ai_worker.py
+```
 
-### ✅ Completed
+### 3. Query the System  
+```bash
+# Ask a question
+curl -X POST "http://localhost:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id": "95", "question": "What does ASPCA stand for?"}'
+
+# List projects
+curl "http://localhost:8000/projects"
+
+# Get source by ID
+curl "http://localhost:8000/v1/projects/95/faqs/1766291f-f2f5-5f01-b1bb-fc95501ab163"
+```
+
+## Implementation Status
+
+### ✅ Completed - Core Functionality
+- Simplified two-script architecture
 - Core data models with stable UUID5 IDs
-- File storage system with atomic writes
+- File storage system with metadata tracking
+- Hybrid search with graceful fallback
+- FastAPI server with essential endpoints
+- Basic keyword search (no dependencies required)
+- Source citations and attachment serving
+
+### ✅ Completed - Enhanced Functionality (Optional Dependencies)
+- Dense vector search with sentence-transformers + FAISS
+- Sparse text search with Whoosh
+- Hybrid search combining both approaches
+
+### ⚠️ Removed - Complex Features
 - Document ingestion pipeline
-- Basic hybrid retrieval framework
-- FastAPI application structure
-- Comprehensive test suite
-- Sample data creation
+- Project management endpoints
+- Batch operations
+- Complex FastAPI application
 
-### 🚧 Requires Dependencies for Full Functionality
-- FastAPI/Uvicorn for web server
-- Sentence transformers for embeddings
-- FAISS for dense vector search
-- Whoosh for sparse BM25 search
-- Document processing libraries (pdfminer, python-docx)
+## Running the Simplified System
 
-### 🔄 Optional Enhancements
-- LLM integration for answer generation
-- Cross-encoder reranking
-- Advanced answerability checking
-- Elasticsearch integration option
-- pgvector/Qdrant integration option
+### Minimal Installation
+```bash
+pip install fastapi uvicorn pydantic
+python prebuild_kb.py  # Creates metadata-only indexes
+python ai_worker.py    # Start server with basic search
+```
 
-## Running the System
+### Full Installation  
+```bash
+pip install fastapi uvicorn pydantic sentence-transformers faiss-cpu whoosh numpy
+python prebuild_kb.py  # Creates full indexes
+python ai_worker.py    # Start server with hybrid search
+```
 
-1. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Start the server**:
-   ```bash
-   python main.py
-   # or
-   uvicorn main:app --host 0.0.0.0 --port 8000
-   ```
-
-3. **Test the implementation**:
-   ```bash
-   python test_core.py        # Test core components
-   python create_sample_data.py  # Create sample data
-   python test_api.py         # Test API endpoints (requires server)
-   ```
+### Testing
+```bash
+python test_core.py       # Test core functionality
+python test_ai_worker.py  # Test AI worker functionality
+```
 
 ## Configuration
 

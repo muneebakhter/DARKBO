@@ -1,9 +1,9 @@
 # DARKBO - Document Augmented Retrieval Knowledge Base Operator
 
-A simplified AI knowledge base system with two main components:
+A simplified AI knowledge base system with two main scripts:
 
-1. **Knowledge Base Prebuild Script** - Prepares vector stores and indexes
-2. **AI Worker** - Serves queries with intelligent answers and source citations
+1. **prebuild_kb.py** - Builds vector stores and search indexes from FAQ/KB data
+2. **ai_worker.py** - FastAPI server that answers questions with source citations
 
 ## 📁 File Structure
 
@@ -21,6 +21,21 @@ proj_mapping.txt                             # "<id>\t<name>\n"
 
 ## 🚀 Quick Start
 
+### Prerequisites
+
+Install Python 3.8+ and required dependencies:
+
+```bash
+# Minimal installation (metadata-only indexes)
+pip install fastapi uvicorn pydantic
+
+# Full installation (with vector search capabilities)
+pip install fastapi uvicorn pydantic sentence-transformers faiss-cpu whoosh numpy
+
+# Optional: Enhanced answer generation
+pip install openai
+```
+
 ### 1. Prepare Your Data
 
 Create a project mapping file:
@@ -31,31 +46,47 @@ echo -e "95\tASPCA\n175\tACLU" > proj_mapping.txt
 Create project directories with FAQ and KB data:
 ```bash
 mkdir -p 95 175
-# Add 95.faq.json, 95.kb.json, etc.
+# Add your 95.faq.json, 95.kb.json, 175.faq.json, 175.kb.json files
 ```
 
-### 2. Prebuild Knowledge Base Indexes
+### 2. Build Knowledge Base Indexes
 
 ```bash
-# Basic prebuild (metadata only)
-python prebuild_kb.py
-
-# Full prebuild with vector search (requires dependencies)
-pip install sentence-transformers faiss-cpu whoosh
 python prebuild_kb.py
 ```
 
-### 3. Start the AI Worker
+This will:
+- Load FAQ and KB data from project directories
+- Build dense vector indexes (if dependencies available)
+- Build sparse text indexes (if dependencies available)  
+- Create metadata for change detection
+- Output progress for each project
+
+### 3. Start the AI Worker Server
 
 ```bash
-# Install FastAPI
-pip install fastapi uvicorn
-
-# Start the server
 python ai_worker.py
 ```
 
-The AI worker will be available at `http://localhost:8000`
+The server will start on `http://localhost:8000` with the following endpoints:
+- `POST /query` - Ask questions and get answers with sources
+- `GET /projects` - List available projects
+- `GET /v1/projects/{project_id}/faqs/{faq_id}` - Get FAQ by ID
+- `GET /v1/projects/{project_id}/kb/{kb_id}` - Get KB entry by ID
+
+### 4. Test the System
+
+```bash
+# Test with the included sample data
+cp -r sample_data/* .
+python prebuild_kb.py
+python ai_worker.py
+
+# In another terminal, test queries:
+curl -X POST "http://localhost:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id": "95", "question": "What does ASPCA stand for?"}'
+```
 
 ## 📡 API Endpoints
 
@@ -105,35 +136,37 @@ curl "http://localhost:8000/projects"
 
 ### Test Core Functionality
 ```bash
-# Test without dependencies
+# Test basic models and data processing
 python test_core.py
 
-# Test AI worker functionality
+# Test AI worker functionality  
 python test_ai_worker.py
 ```
 
-### Test with Sample Data
+### Run Complete Integration Test
 ```bash
-# Copy sample data
+# Copy sample data and run full test
 cp -r sample_data/* .
-
-# Prebuild indexes
 python prebuild_kb.py
-
-# Test queries
 python test_ai_worker.py
 ```
 
 ## 📦 Dependencies
 
-### Minimal (metadata-only indexes)
+### Required (core functionality)
 ```bash
-pip install fastapi uvicorn
+pip install fastapi uvicorn pydantic
 ```
 
-### Full functionality (vector search)
+### Optional (enhanced search)
 ```bash
-pip install sentence-transformers faiss-cpu whoosh openai
+pip install sentence-transformers faiss-cpu whoosh numpy
+```
+
+### Optional (AI-powered answers)
+```bash
+pip install openai
+export OPENAI_API_KEY=your_key_here
 ```
 
 ## 🔧 Configuration
@@ -144,9 +177,34 @@ pip install sentence-transformers faiss-cpu whoosh openai
 export HOST=0.0.0.0
 export PORT=8000
 
-# OpenAI API (optional, for advanced answer generation)
+# Optional: OpenAI API for enhanced answer generation
 export OPENAI_API_KEY=your_key_here
 ```
+
+## 🎯 Key Features
+
+- **Simple Two-Script Architecture**: Just prebuild_kb.py and ai_worker.py
+- **Hybrid Search**: Combines dense (semantic) and sparse (keyword) search when dependencies available
+- **Source Citations**: All answers include clickable source links
+- **File Attachments**: Serves original files when available
+- **Graceful Degradation**: Works with minimal dependencies, enhanced with full dependencies
+- **Fast Setup**: File-based storage, no external databases required
+
+## 📋 Scripts Overview
+
+### prebuild_kb.py
+- Processes FAQ and KB JSON files
+- Builds FAISS dense vector indexes (semantic search)
+- Builds Whoosh sparse text indexes (keyword search) 
+- Creates metadata for change detection
+- Works with or without ML dependencies
+
+### ai_worker.py
+- FastAPI server with query endpoints
+- Loads prebuilt indexes for fast search
+- Returns answers with source citations
+- Serves attachment files when available
+- Handles multiple projects
 
 ## 📋 Sample Data Format
 
