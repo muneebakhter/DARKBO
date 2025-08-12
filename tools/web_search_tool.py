@@ -151,7 +151,7 @@ class WebSearchTool(BaseTool):
             # Return a helpful error message as a search result
             return [{
                 "title": "Search Service Unavailable", 
-                "snippet": f"Unable to connect to search service: {str(e)}. Please check your internet connection.",
+                "snippet": f"Web search is currently unavailable due to network restrictions. For information about '{query}', please check your local knowledge base or contact support directly.",
                 "url": "",
                 "source": "error"
             }]
