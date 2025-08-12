@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Simplified AI Worker for DARKBO
-Provides minimal endpoints for querying knowledge bases with sources.
+Provides minimal endpoints for querying knowledge bases with sources and external tools.
 """
 
 import os
@@ -10,6 +10,7 @@ import mimetypes
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+import asyncio
 
 from fastapi import FastAPI, HTTPException, Path as FastAPIPath
 from fastapi.responses import FileResponse, JSONResponse
@@ -27,6 +28,7 @@ except ImportError:
     HAS_DEPS = False
 
 from api.models import FAQEntry, KBEntry
+from tools import ToolManager
 
 
 # Pydantic models for API
@@ -41,11 +43,19 @@ class Source(BaseModel):
     url: str
     relevance_score: float
 
+class ToolUsage(BaseModel):
+    tool_name: str
+    parameters: Dict[str, Any]
+    result: Dict[str, Any]
+    success: bool
+    execution_time: Optional[float] = None
+
 class QueryResponse(BaseModel):
     answer: str
     sources: List[Source]
     project_id: str
     timestamp: str
+    tools_used: Optional[List[ToolUsage]] = None
 
 
 class KnowledgeBaseRetriever:
@@ -284,6 +294,7 @@ class AIWorker:
         self.base_dir = Path(base_dir)
         self.projects = self._load_projects()
         self.retrievers = {}  # Cache retrievers
+        self.tool_manager = ToolManager()  # Initialize tool manager
     
     def _load_projects(self) -> Dict[str, str]:
         """Load project mapping"""
@@ -338,12 +349,12 @@ class AIWorker:
         
         return None
     
-    def answer_question(self, project_id: str, question: str) -> QueryResponse:
-        """Generate answer with sources"""
+    async def answer_question(self, project_id: str, question: str, use_tools: bool = True) -> QueryResponse:
+        """Generate answer with sources and optional tool assistance"""
         # Get retriever
         retriever = self.get_retriever(project_id)
         
-        # Search for relevant content
+        # Search for relevant content in KB
         search_results = retriever.search(question, top_k=5)
         
         # Generate sources
@@ -366,8 +377,50 @@ class AIWorker:
                 relevance_score=result.get('score', 0.0)
             ))
         
-        # Generate answer (simple context-based approach)
-        if search_results:
+        # Use tools if enabled and appropriate
+        tools_used = []
+        tool_enhanced_answer = None
+        
+        if use_tools:
+            suggested_tools = self.tool_manager.should_use_tool(question)
+            
+            for tool_name in suggested_tools:
+                try:
+                    # Prepare tool parameters based on the question
+                    tool_params = self._prepare_tool_parameters(tool_name, question)
+                    
+                    # Execute tool
+                    tool_result = await self.tool_manager.execute_tool(tool_name, **tool_params)
+                    
+                    # Record tool usage
+                    tools_used.append(ToolUsage(
+                        tool_name=tool_name,
+                        parameters=tool_params,
+                        result=tool_result.to_dict(),
+                        success=tool_result.success,
+                        execution_time=tool_result.execution_time
+                    ))
+                    
+                    # If tool was successful, try to incorporate its result
+                    # For datetime questions, prioritize datetime tool over web search
+                    if tool_result.success and tool_result.data:
+                        potential_answer = self._incorporate_tool_result(
+                            question, tool_name, tool_result.data, search_results
+                        )
+                        
+                        # Use the answer if we don't have one yet, or if this is a datetime tool for a time question
+                        if potential_answer and (not tool_enhanced_answer or 
+                            (tool_name == "datetime" and any(word in question.lower() for word in ['time', 'date', 'when', 'today', 'now']))):
+                            tool_enhanced_answer = potential_answer
+                        
+                except Exception as e:
+                    print(f"Error using tool {tool_name}: {e}")
+                    # Continue without this tool
+        
+        # Generate final answer
+        if tool_enhanced_answer:
+            answer = tool_enhanced_answer
+        elif search_results:
             # Use the top result for a simple answer
             top_result = search_results[0]
             
@@ -391,8 +444,62 @@ class AIWorker:
             answer=answer,
             sources=sources,
             project_id=project_id,
-            timestamp=datetime.utcnow().isoformat()
+            timestamp=datetime.utcnow().isoformat(),
+            tools_used=tools_used if tools_used else None
         )
+    
+    def _prepare_tool_parameters(self, tool_name: str, question: str) -> Dict[str, Any]:
+        """Prepare parameters for tool execution based on the question"""
+        if tool_name == "datetime":
+            # For datetime tool, check if user wants specific format
+            if "format" in question.lower() or "yyyy" in question.lower() or "mm/dd" in question.lower():
+                return {"format": "%Y-%m-%d %H:%M:%S"}
+            return {}
+        
+        elif tool_name == "web_search":
+            # For web search, use the question as the query
+            return {"query": question, "max_results": 3}
+        
+        return {}
+    
+    def _incorporate_tool_result(self, question: str, tool_name: str, tool_data: Any, kb_results: List[Dict]) -> str:
+        """Incorporate tool results into the answer"""
+        
+        if tool_name == "datetime":
+            if isinstance(tool_data, dict):
+                current_time = tool_data.get('current_datetime', '')
+                weekday = tool_data.get('weekday', '')
+                
+                # Create a natural language response
+                if any(word in question.lower() for word in ['time', 'clock']):
+                    return f"The current time is {current_time}."
+                elif any(word in question.lower() for word in ['date', 'today']):
+                    return f"Today is {weekday}, {current_time.split('T')[0]}."
+                else:
+                    return f"The current date and time is {current_time} ({weekday})."
+        
+        elif tool_name == "web_search":
+            if isinstance(tool_data, dict) and tool_data.get('results'):
+                results = tool_data['results']
+                
+                # Only use web search if it has valid results and no datetime tool was used for time questions
+                if results and not any(r.get('source') == 'error' for r in results):
+                    # If we have KB results, combine them with web results
+                    if kb_results:
+                        kb_answer = kb_results[0].get('answer') or kb_results[0].get('content', '')[:200]
+                        web_info = results[0].get('snippet', '') if results else ''
+                        
+                        if kb_answer and web_info:
+                            return f"Based on our knowledge base: {kb_answer}\n\nAdditional current information: {web_info}"
+                        elif kb_answer:
+                            return kb_answer
+                    
+                    # If no KB results, use web results
+                    if results:
+                        top_result = results[0]
+                        return f"According to current web sources: {top_result.get('snippet', 'No information available.')}"
+        
+        return None
 
 
 # Initialize FastAPI app
@@ -411,14 +518,17 @@ async def root():
     """Root endpoint"""
     return {
         "name": "DARKBO AI Worker",
-        "description": "Simplified AI worker for querying knowledge bases",
-        "version": "2.0.0",
+        "description": "Simplified AI worker for querying knowledge bases with external tools support",
+        "version": "2.1.0",
         "endpoints": {
             "query": "POST /query",
             "faq": "GET /v1/projects/{project_id}/faqs/{faq_id}",
             "kb": "GET /v1/projects/{project_id}/kb/{kb_id}",
-            "projects": "GET /projects"
-        }
+            "projects": "GET /projects",
+            "tools": "GET /tools",
+            "execute_tool": "POST /tools/{tool_name}"
+        },
+        "tools_available": len(worker.tool_manager.get_enabled_tools())
     }
 
 
@@ -441,16 +551,37 @@ async def list_projects():
 
 @app.post("/query")
 async def query(request: QueryRequest) -> QueryResponse:
-    """Answer a question with sources"""
+    """Answer a question with sources and optional tool assistance"""
     try:
         if request.project_id not in worker.projects:
             raise HTTPException(status_code=404, detail="Project not found")
         
-        response = worker.answer_question(request.project_id, request.question)
+        response = await worker.answer_question(request.project_id, request.question)
         return response
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
+
+@app.get("/tools")
+async def list_tools():
+    """List available tools"""
+    return {
+        "tools": worker.tool_manager.list_tools()
+    }
+
+
+@app.post("/tools/{tool_name}")
+async def execute_tool(
+    tool_name: str = FastAPIPath(..., description="Tool name"),
+    parameters: Dict[str, Any] = {}
+):
+    """Execute a specific tool with given parameters"""
+    try:
+        result = await worker.tool_manager.execute_tool(tool_name, **parameters)
+        return result.to_dict()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Tool execution failed: {str(e)}")
 
 
 @app.get("/v1/projects/{project_id}/faqs/{faq_id}")

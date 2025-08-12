@@ -16,7 +16,7 @@ try:
     import numpy as np
     from sentence_transformers import SentenceTransformer
     import faiss
-    from whoosh.index import create_index
+    from whoosh.index import create_in
     from whoosh.fields import Schema, TEXT, ID, STORED
     from whoosh.writing import AsyncWriter
     HAS_DEPS = True
@@ -153,7 +153,7 @@ class IndexBuilder:
             )
             
             # Create index
-            index = create_index(schema, str(self.sparse_dir))
+            index = create_in(str(self.sparse_dir), schema)
             
             # Add documents
             writer = index.writer()

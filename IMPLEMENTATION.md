@@ -51,12 +51,20 @@ DARKBO has been simplified to a two-script architecture that focuses on the core
 - **Smart Fallback**: Gracefully degrades when ML dependencies not available
 - **Hybrid Results**: Combines dense and sparse results, removes duplicates, ranks by relevance
 
-### ✅ 6. Prebuild System
-- **Index Generation**: Creates dense and sparse indexes for fast retrieval
-- **Metadata Tracking**: Checksums and change detection
-- **Incremental Updates**: Only rebuilds when content changes
-- **Dependency Flexibility**: Works with minimal or full dependencies
-- Structured output with citations and confidence
+### ✅ 7. External Tools Framework (New)
+- **Tools Architecture**: Modular framework in `tools/` directory with abstract base classes
+- **DateTime Tool**: Provides current date, time, timezone information with customizable formatting
+- **Web Search Tool**: DuckDuckGo API integration for web search capabilities
+- **Tool Manager**: Automatic tool selection based on query keywords
+- **Smart Integration**: Tools results incorporated into knowledge base answers
+- **API Endpoints**: Direct tool access via `/tools` and `/tools/{tool_name}` endpoints
+- **Graceful Handling**: Tools failures don't break the main query processing
+
+### Tools Usage Patterns
+- **Date/Time Queries**: `"What time is it?"`, `"What date is today?"` → Uses DateTime tool
+- **General Questions**: `"What is X?"`, `"How to Y?"` → Uses Web search + KB knowledge
+- **KB-first Approach**: Knowledge base results are primary, tools provide supplementary information
+- **Error Resilience**: Network failures handled gracefully with informative error messages
 
 ## Simplified Implementation Details
 

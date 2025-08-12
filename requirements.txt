@@ -11,3 +11,6 @@ numpy>=1.24.0
 
 # Optional: Enhanced answer generation
 openai>=1.3.0
+
+# Tools dependencies
+requests>=2.31.0
