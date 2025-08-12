@@ -25,5 +25,14 @@
     "updated_at": "2025-08-12T21:28:27.646687",
     "source": "manual",
     "source_file": null
+  },
+  {
+    "id": "f94f47be-d011-53d0-a582-7f59dde83c5e",
+    "question": "How do I upload documents to ASPCA?",
+    "answer": "You can upload documents by visiting our secure portal at aspca.org/upload or by emailing them to documents@aspca.org",
+    "created_at": "2025-08-12T21:34:28.306022",
+    "updated_at": "2025-08-12T21:34:28.306025",
+    "source": "manual",
+    "source_file": null
   }
 ]
