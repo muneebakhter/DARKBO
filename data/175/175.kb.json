@@ -3,8 +3,8 @@
     "id": "af21d5a9-e7c9-5d89-8525-d942567797f3",
     "article": "About the ACLU",
     "content": "The American Civil Liberties Union (ACLU) is a non-profit organization founded in 1920. Our mission is to defend and preserve the individual rights and liberties guaranteed by the Constitution and laws of the United States.",
-    "created_at": "2025-08-12T21:28:27.646117",
-    "updated_at": "2025-08-12T21:28:27.646120",
+    "created_at": "2025-08-12T21:58:59.454228",
+    "updated_at": "2025-08-12T21:58:59.454230",
     "source": "upload",
     "source_file": "aclu_about.txt",
     "chunk_index": null
@@ -13,8 +13,8 @@
     "id": "a0a9ec31-b898-5a76-b987-49e831bb8868",
     "article": "Our Work Areas",
     "content": "We work through litigation, advocacy, and public education to protect civil liberties. Key areas include: Freedom of speech and expression, Religious liberty, Privacy rights, Equal protection under law, Criminal justice reform, and Immigrant rights.",
-    "created_at": "2025-08-12T21:28:27.646145",
-    "updated_at": "2025-08-12T21:28:27.646147",
+    "created_at": "2025-08-12T21:58:59.454245",
+    "updated_at": "2025-08-12T21:58:59.454246",
     "source": "upload",
     "source_file": "aclu_work.txt",
     "chunk_index": null
@@ -23,10 +23,30 @@
     "id": "2dec7e26-21cb-5358-bd15-22f9292dd09e",
     "article": "Contact Information",
     "content": "Phone: Available Monday through Friday, 9 AM to 5 PM Mountain Time. Website: www.aclu.org. Email: info@aclu.org. For legal emergencies, contact our 24-hour hotline.",
-    "created_at": "2025-08-12T21:28:27.646166",
-    "updated_at": "2025-08-12T21:28:27.646168",
+    "created_at": "2025-08-12T21:58:59.454255",
+    "updated_at": "2025-08-12T21:58:59.454256",
     "source": "upload",
     "source_file": "aclu_contact.txt",
     "chunk_index": null
+  },
+  {
+    "id": "f1d0eab9-183b-5ddc-9e57-8b44585a3a51",
+    "article": "Enterprise Document Management",
+    "content": "Enterprise Document Management System This document outlines the key features and requirements for an enterprise document management system that supports automated ingestion and indexing. Key Features Automated document ingestion from PDF and DOCX formats Intelligent text extraction and cleaning algorithms Semantic search and retrieval capabilities Source citation with original document links RESTful API for integration with existing systems Implementation Requirements The system must handle multipart file uploads, process documents using appropriate libraries, extract clean text content, and automatically index the processed content into a searchable knowledge base. When users query the system, responses should include direct links to the original attachments for verification and reference.",
+    "created_at": "2025-08-12T22:11:17.715033",
+    "updated_at": "2025-08-12T22:11:17.715038",
+    "source": "upload",
+    "source_file": "26d8e53d-aad5-478c-9dde-0c0e46dc604e-kb.docx",
+    "chunk_index": 0
+  },
+  {
+    "id": "174f7bd6-f486-5875-9ae9-8184a72b15b0",
+    "article": "Enterprise Document Management",
+    "content": "xt extraction, implements chunking strategies for optimal indexing, and maintains strong associations between processed content and source documents.",
+    "created_at": "2025-08-12T22:11:17.715057",
+    "updated_at": "2025-08-12T22:11:17.715060",
+    "source": "upload",
+    "source_file": "26d8e53d-aad5-478c-9dde-0c0e46dc604e-kb.docx",
+    "chunk_index": 1
   }
 ]

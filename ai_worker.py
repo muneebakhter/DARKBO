@@ -45,9 +45,8 @@ except ImportError:
 from api.index_versioning import IndexBuilder, IndexVersionManager
 from tools import ToolManager
 
-# Additional imports for file handling - will be enabled when python-multipart is available
-# from fastapi import File, UploadFile, Form, BackgroundTasks
-from fastapi import BackgroundTasks
+# Additional imports for file handling
+from fastapi import File, UploadFile, Form, BackgroundTasks
 import uuid
 import asyncio
 
@@ -1161,22 +1160,14 @@ async def execute_tool(
         raise HTTPException(status_code=500, detail=f"Tool execution failed: {str(e)}")
 
 
-# @app.post("/projects/{project_id}/documents")
-# async def upload_document(
-#     project_id: str = FastAPIPath(..., description="Project ID"),
-#     file: UploadFile = File(..., description="Document file (PDF or DOCX)")
-# ) -> DocumentUploadResponse:
-#     """Upload and process a document for ingestion into the knowledge base"""
-#     return await worker.ingest_document(project_id, file, None)
-
-# Document upload endpoint disabled until python-multipart is installed
-@app.post("/projects/{project_id}/documents-disabled")  
-async def upload_document_disabled():
-    """Document upload requires python-multipart to be installed"""
-    raise HTTPException(
-        status_code=501, 
-        detail="Document upload requires: pip install python-multipart python-docx PyPDF2"
-    )
+@app.post("/projects/{project_id}/documents")
+async def upload_document(
+    project_id: str = FastAPIPath(..., description="Project ID"),
+    file: UploadFile = File(..., description="Document file (PDF or DOCX)"),
+    article_title: Optional[str] = Form(None, description="Optional article title")
+) -> DocumentUploadResponse:
+    """Upload and process a document for ingestion into the knowledge base"""
+    return await worker.ingest_document(project_id, file, article_title)
 
 
 @app.post("/projects/{project_id}/faqs")
@@ -1241,7 +1232,29 @@ async def get_kb(
     if project_id not in worker.projects:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # Check for attachment files (multiple possible extensions)
+    # First get the KB entry to check for source_file
+    kb = worker.get_kb_by_id(project_id, kb_id)
+    if not kb:
+        raise HTTPException(status_code=404, detail="KB entry not found")
+    
+    # Check if there's an associated attachment file
+    if kb.source_file:
+        attachments_dir = worker.base_dir / project_id / "attachments"
+        attachment_file = attachments_dir / kb.source_file
+        
+        if attachment_file.exists():
+            # Determine media type
+            media_type, _ = mimetypes.guess_type(str(attachment_file))
+            if not media_type:
+                media_type = "application/octet-stream"
+            
+            return FileResponse(
+                path=str(attachment_file),
+                media_type=media_type,
+                filename=attachment_file.name
+            )
+    
+    # Check for legacy attachment files (multiple possible extensions)
     attachments_dir = worker.base_dir / project_id / "attachments"
     possible_files = [
         attachments_dir / f"{kb_id}-kb.txt",
@@ -1263,10 +1276,6 @@ async def get_kb(
             )
     
     # Fall back to JSON
-    kb = worker.get_kb_by_id(project_id, kb_id)
-    if not kb:
-        raise HTTPException(status_code=404, detail="KB entry not found")
-    
     return kb.to_dict()
 
 
