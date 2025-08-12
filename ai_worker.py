@@ -743,12 +743,12 @@ Please provide a helpful response based ONLY on the question and available conte
         
         # STEP 3: If no sufficient information exists, use web search tool
         has_sufficient_kb_info = len(search_results) > 0 and any(
-            result.get('score', 0) > 7.0 for result in search_results  # Raised threshold to 7.0 for better relevance
+            result.get('score', 0) > 15.0 for result in search_results  # High threshold ensures truly relevant matches
         )
         
         if not has_sufficient_kb_info and use_tools and not is_time_based:
             print(f"\n--- STEP 3: Knowledge Base insufficient, using Web Search ---")
-            print(f"AI Agent Context: No high-confidence results in KB (threshold: 0.5)")
+            print(f"AI Agent Context: No high-confidence results in KB (threshold: 15.0)")
             print(f"AI Agent: Attempting web search as fallback")
             
             try:
