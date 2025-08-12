@@ -162,9 +162,44 @@ curl -X POST "http://localhost:8000/query" \
 
 ## 📡 API Endpoints
 
-### Core Query Endpoint (Enhanced with Tools)
+### Core Query Endpoint (Enhanced with AI Agent and Tools)
+
+**AI Agent Identity:**
 ```bash
-# Ask a question (automatically uses tools when appropriate)
+# Ask about the system's identity
+curl -X POST "http://localhost:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id": "95", "question": "What is your name?"}'
+
+# Response:
+{
+  "answer": "I am ACD Direct's Knowledge Base AI System, pleased to meet you! I'm here to help you find information from our knowledge base. How can I assist you today?",
+  "sources": [...],
+  "project_id": "95",
+  "timestamp": "2025-08-12T15:58:54.231246",
+  "tools_used": null
+}
+```
+
+**Knowledge Base Queries with AI Enhancement:**
+```bash
+# Ask a knowledge base question (AI provides context-aware response)
+curl -X POST "http://localhost:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id": "95", "question": "What does ASPCA stand for?"}'
+
+# Response:
+{
+  "answer": "ASPCA stands for the American Society for the Prevention of Cruelty to Animals. [AI-enhanced response with context]",
+  "sources": [...],
+  "project_id": "95",
+  "timestamp": "2025-08-12T15:58:54.231246"
+}
+```
+
+**Tool Integration:**
+```bash
+# Ask a time-based question (automatically uses datetime tool)
 curl -X POST "http://localhost:8000/query" \
   -H "Content-Type: application/json" \
   -d '{
@@ -272,26 +307,44 @@ export OPENAI_API_KEY=your_key_here
 ## 🔧 Configuration
 
 ### Environment Variables
-```bash
-# Server configuration
-export HOST=0.0.0.0
-export PORT=8000
 
-# Optional: OpenAI API for enhanced answer generation
-export OPENAI_API_KEY=your_key_here
+DARKBO now supports AI-powered responses using OpenAI's GPT models. Create a `.env` file in the root directory:
+
+```bash
+# Copy .env.example to .env and configure
+cp .env.example .env
+
+# Edit .env file with your OpenAI API key
+OPENAI_API_KEY=your_actual_openai_api_key_here
+OPENAI_MODEL=gpt-4o-mini  # Optional: specify model (default: gpt-4o-mini)
+
+# Server configuration (optional)
+HOST=0.0.0.0
+PORT=8000
 ```
+
+**AI Agent Features:**
+- 🤖 **Intelligent Responses**: Uses GPT to generate contextual answers
+- 📚 **RAG Integration**: Combines knowledge base content with AI generation
+- 🔄 **Graceful Fallback**: Works without OpenAI key using enhanced fallback logic
+- 🎭 **Identity Awareness**: Introduces itself as "ACD Direct's Knowledge Base AI System"
+- 🛠️ **Tool Integration**: Incorporates datetime and web search results into responses
+
+**Without OpenAI API Key:**
+The system provides intelligent fallback responses for common question types and maintains full knowledge base functionality.
 
 ## 🎯 Key Features
 
-- **Simple Two-Script Architecture**: Just prebuild_kb.py and ai_worker.py
-- **External Tools Support**: DateTime and web search tools with extensible framework
-- **Hybrid Vector Store**: Combines dense (semantic) and sparse (keyword) search when dependencies available
-- **Confirmed Vector Approach**: Uses FAISS for dense vectors + Whoosh for sparse text + basic fallback
-- **Source Citations**: All answers include clickable source links
-- **Tool-Enhanced Responses**: Automatically uses tools to provide current information
-- **File Attachments**: Serves original files when available
-- **Graceful Degradation**: Works with minimal dependencies, enhanced with full dependencies
-- **Fast Setup**: File-based storage, no external databases required
+- **🤖 AI-Powered Responses**: OpenAI GPT integration with RAG (Retrieval-Augmented Generation)
+- **🎭 Intelligent Identity**: AI agent identifies as "ACD Direct's Knowledge Base AI System"
+- **📚 Context-Aware Answers**: Combines knowledge base content with AI generation
+- **🔄 Graceful Fallback**: Enhanced fallback logic when OpenAI is unavailable
+- **🛠️ External Tools Support**: DateTime and web search tools with extensible framework
+- **🔍 Hybrid Vector Store**: Combines dense (semantic) and sparse (keyword) search when dependencies available
+- **📋 Source Citations**: All answers include clickable source links
+- **🏗️ Simple Two-Script Architecture**: Just prebuild_kb.py and ai_worker.py
+- **📎 File Attachments**: Serves original files when available
+- **⚡ Fast Setup**: File-based storage, no external databases required
 
 ## 📋 Scripts Overview
 

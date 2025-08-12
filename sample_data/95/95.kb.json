@@ -23,8 +23,8 @@
     "id": "36d56ba2-b5bc-56e1-849e-9ec642c78ebb",
     "article": "DARKBO Advanced Features",
     "content": "DARKBO Advanced Features Test Document This document tests the advanced document processing capabilities of DARKBO. Key Features: - Intelligent text chunking with overlap - Metadata extraction and storage - Versioned index building - Atomic index updates - Background processing The system ensures that queries continue to work while new indexes are being built. This provides a seamless user experience even during large document ingestions. Processing Pipeline: 1. Document upload and validation 2. Text extraction and cleaning 3. Intelligent chunking 4. Knowledge base entry creation 5. Background index rebuilding 6. Atomic version switching This comprehensive approach ensures both reliability and performance.",
-    "created_at": "2025-08-12T15:08:13.563518",
-    "updated_at": "2025-08-12T15:08:13.563520",
+    "created_at": "2025-08-12T15:58:34.206667",
+    "updated_at": "2025-08-12T15:58:34.206671",
     "source": "test_upload",
     "source_file": null,
     "chunk_index": null
