@@ -28,7 +28,19 @@ except ImportError:
     HAS_DEPS = False
 
 from api.models import FAQEntry, KBEntry
+from api.storage import FileStorageManager
+try:
+    from api.document_processor import process_document_for_kb
+except ImportError:
+    from api.simple_processor import process_document_for_kb
+from api.index_versioning import IndexBuilder, IndexVersionManager
 from tools import ToolManager
+
+# Additional imports for file handling - will be enabled when python-multipart is available
+# from fastapi import File, UploadFile, Form, BackgroundTasks
+from fastapi import BackgroundTasks
+import uuid
+import asyncio
 
 
 # Pydantic models for API
@@ -57,15 +69,32 @@ class QueryResponse(BaseModel):
     timestamp: str
     tools_used: Optional[List[ToolUsage]] = None
 
+class FAQCreateRequest(BaseModel):
+    question: str
+    answer: str
+
+class DocumentUploadResponse(BaseModel):
+    success: bool
+    message: str
+    document_id: Optional[str] = None
+    kb_entries_created: Optional[List[str]] = None
+    index_build_started: bool = False
+    
+class IndexBuildResponse(BaseModel):
+    success: bool
+    message: str
+    version: Optional[str] = None
+    build_status: Optional[Dict[str, Any]] = None
+
 
 class KnowledgeBaseRetriever:
-    """Retrieves information from prebuilt indexes"""
+    """Retrieves information from prebuilt indexes with versioning support"""
     
     def __init__(self, project_id: str, base_dir: str = "."):
         self.project_id = project_id
         self.base_dir = Path(base_dir)
         self.project_dir = self.base_dir / project_id
-        self.index_dir = self.project_dir / "index"
+        self.version_manager = IndexVersionManager(project_id, base_dir)
         
         # Load metadata
         self.metadata = self._load_metadata()
@@ -79,23 +108,30 @@ class KnowledgeBaseRetriever:
         self._load_indexes()
     
     def _load_metadata(self) -> Dict:
-        """Load index metadata"""
-        meta_file = self.index_dir / "meta.json"
-        if not meta_file.exists():
-            raise ValueError(f"No index metadata found for project {self.project_id}")
+        """Load index metadata from current version"""
+        try:
+            index_paths = self.version_manager.get_current_index_paths()
+            meta_file = index_paths['meta']
+            
+            if meta_file.exists():
+                with open(meta_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Warning: Could not load metadata for {self.project_id}: {e}")
         
-        with open(meta_file, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        return {"error": "No index metadata found"}
     
     def _load_indexes(self):
-        """Load prebuilt indexes"""
+        """Load prebuilt indexes from current version"""
         if not HAS_DEPS:
             return
         
         try:
+            index_paths = self.version_manager.get_current_index_paths()
+            
             # Load dense index
             if self.metadata.get('indexes', {}).get('dense', {}).get('available'):
-                dense_dir = self.index_dir / "dense"
+                dense_dir = index_paths['dense']
                 index_file = dense_dir / "faiss.index"
                 metadata_file = dense_dir / "metadata.json"
                 
@@ -109,12 +145,21 @@ class KnowledgeBaseRetriever:
             
             # Load sparse index
             if self.metadata.get('indexes', {}).get('sparse', {}).get('available'):
-                sparse_dir = self.index_dir / "sparse"
+                sparse_dir = index_paths['sparse']
                 if sparse_dir.exists():
                     self.sparse_index = open_dir(str(sparse_dir))
                     
         except Exception as e:
             print(f"Warning: Could not load indexes for {self.project_id}: {e}")
+    
+    def reload_indexes(self):
+        """Reload indexes after a rebuild"""
+        self.metadata = self._load_metadata()
+        self.dense_index = None
+        self.dense_metadata = None
+        self.sparse_index = None
+        self.embedding_model = None
+        self._load_indexes()
     
     def search_dense(self, query: str, top_k: int = 5) -> List[Dict]:
         """Search using dense vector similarity"""
@@ -288,13 +333,14 @@ class KnowledgeBaseRetriever:
 
 
 class AIWorker:
-    """Main AI worker class"""
+    """Main AI worker class with document ingestion support"""
     
     def __init__(self, base_dir: str = "."):
         self.base_dir = Path(base_dir)
         self.projects = self._load_projects()
         self.retrievers = {}  # Cache retrievers
         self.tool_manager = ToolManager()  # Initialize tool manager
+        self.storage = FileStorageManager(str(self.base_dir))  # Storage manager
     
     def _load_projects(self) -> Dict[str, str]:
         """Load project mapping"""
@@ -501,6 +547,217 @@ class AIWorker:
         
         return None
 
+    async def ingest_document(self, project_id: str, file, article_title: str = None) -> DocumentUploadResponse:
+        """Ingest a document into the knowledge base"""
+        try:
+            # Validate project
+            if project_id not in self.projects:
+                return DocumentUploadResponse(
+                    success=False,
+                    message=f"Project {project_id} not found"
+                )
+            
+            # Validate file type
+            if not file.filename.lower().endswith(('.pdf', '.docx', '.doc')):
+                return DocumentUploadResponse(
+                    success=False,
+                    message="Only PDF and DOCX files are supported"
+                )
+            
+            # Generate document ID
+            doc_id = str(uuid.uuid4())
+            
+            # Save uploaded file temporarily
+            temp_file = f"/tmp/{doc_id}_{file.filename}"
+            with open(temp_file, "wb") as buffer:
+                content = await file.read()
+                buffer.write(content)
+            
+            try:
+                # Process document
+                full_text, chunks, metadata = process_document_for_kb(
+                    temp_file, 
+                    article_title or Path(file.filename).stem
+                )
+                
+                # Save attachment file
+                attachment_filename = f"{doc_id}-kb{Path(file.filename).suffix}"
+                self.storage.save_attachment(project_id, attachment_filename, content)
+                
+                # Create KB entries from chunks
+                kb_entries = []
+                created_ids = []
+                
+                for i, chunk in enumerate(chunks):
+                    kb_entry = KBEntry.from_content(
+                        project_id=project_id,
+                        article=metadata['article_title'],
+                        content=chunk,
+                        source="upload",
+                        source_file=attachment_filename,
+                        chunk_index=i if len(chunks) > 1 else None
+                    )
+                    kb_entries.append(kb_entry)
+                    created_ids.append(kb_entry.id)
+                
+                # Save KB entries
+                if kb_entries:
+                    self.storage.upsert_kb_entries(project_id, kb_entries)
+                
+                # Start index rebuild in background
+                index_build_started = False
+                try:
+                    builder = IndexBuilder(project_id, str(self.base_dir))
+                    if builder.version_manager.needs_rebuild():
+                        # Start background task for index rebuild
+                        asyncio.create_task(self._rebuild_indexes_async(project_id))
+                        index_build_started = True
+                except Exception as e:
+                    print(f"Warning: Could not start index rebuild: {e}")
+                
+                return DocumentUploadResponse(
+                    success=True,
+                    message=f"Document processed successfully. Created {len(kb_entries)} KB entries.",
+                    document_id=doc_id,
+                    kb_entries_created=created_ids,
+                    index_build_started=index_build_started
+                )
+                
+            finally:
+                # Clean up temp file
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
+                    
+        except Exception as e:
+            return DocumentUploadResponse(
+                success=False,
+                message=f"Document processing failed: {str(e)}"
+            )
+    
+    async def add_faq(self, project_id: str, question: str, answer: str) -> DocumentUploadResponse:
+        """Add a new FAQ entry"""
+        try:
+            # Validate project
+            if project_id not in self.projects:
+                return DocumentUploadResponse(
+                    success=False,
+                    message=f"Project {project_id} not found"
+                )
+            
+            # Create FAQ entry
+            faq = FAQEntry.from_qa(
+                project_id=project_id,
+                question=question.strip(),
+                answer=answer.strip(),
+                source="manual"
+            )
+            
+            # Save FAQ
+            created_ids, updated_ids = self.storage.upsert_faqs(project_id, [faq])
+            
+            # Start index rebuild in background
+            index_build_started = False
+            try:
+                builder = IndexBuilder(project_id, str(self.base_dir))
+                if builder.version_manager.needs_rebuild():
+                    asyncio.create_task(self._rebuild_indexes_async(project_id))
+                    index_build_started = True
+            except Exception as e:
+                print(f"Warning: Could not start index rebuild: {e}")
+            
+            action = "updated" if updated_ids else "created"
+            return DocumentUploadResponse(
+                success=True,
+                message=f"FAQ {action} successfully",
+                document_id=faq.id,
+                kb_entries_created=[faq.id],
+                index_build_started=index_build_started
+            )
+            
+        except Exception as e:
+            return DocumentUploadResponse(
+                success=False,
+                message=f"FAQ creation failed: {str(e)}"
+            )
+    
+    async def rebuild_indexes(self, project_id: str) -> IndexBuildResponse:
+        """Manually trigger index rebuild"""
+        try:
+            if project_id not in self.projects:
+                return IndexBuildResponse(
+                    success=False,
+                    message=f"Project {project_id} not found"
+                )
+            
+            builder = IndexBuilder(project_id, str(self.base_dir))
+            
+            # Check if build is already in progress
+            if builder.version_manager.is_building():
+                return IndexBuildResponse(
+                    success=False,
+                    message="Index build already in progress",
+                    build_status=builder.version_manager.get_build_status()
+                )
+            
+            # Start build
+            new_version = builder.build_new_version()
+            
+            # Reload retrievers to use new index
+            if project_id in self.retrievers:
+                self.retrievers[project_id].reload_indexes()
+            
+            return IndexBuildResponse(
+                success=True,
+                message=f"Index rebuild completed",
+                version=new_version,
+                build_status=builder.version_manager.get_build_status()
+            )
+            
+        except Exception as e:
+            return IndexBuildResponse(
+                success=False,
+                message=f"Index rebuild failed: {str(e)}"
+            )
+    
+    async def get_build_status(self, project_id: str) -> IndexBuildResponse:
+        """Get index build status"""
+        try:
+            if project_id not in self.projects:
+                return IndexBuildResponse(
+                    success=False,
+                    message=f"Project {project_id} not found"
+                )
+            
+            version_manager = IndexVersionManager(project_id, str(self.base_dir))
+            build_status = version_manager.get_build_status()
+            
+            return IndexBuildResponse(
+                success=True,
+                message="Build status retrieved",
+                build_status=build_status
+            )
+            
+        except Exception as e:
+            return IndexBuildResponse(
+                success=False,
+                message=f"Failed to get build status: {str(e)}"
+            )
+    
+    async def _rebuild_indexes_async(self, project_id: str):
+        """Background task to rebuild indexes"""
+        try:
+            builder = IndexBuilder(project_id, str(self.base_dir))
+            new_version = builder.build_new_version()
+            
+            # Reload retrievers to use new index
+            if project_id in self.retrievers:
+                self.retrievers[project_id].reload_indexes()
+                
+            print(f"Background index rebuild completed for project {project_id}, version {new_version}")
+            
+        except Exception as e:
+            print(f"Background index rebuild failed for project {project_id}: {e}")
+
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -526,7 +783,11 @@ async def root():
             "kb": "GET /v1/projects/{project_id}/kb/{kb_id}",
             "projects": "GET /projects",
             "tools": "GET /tools",
-            "execute_tool": "POST /tools/{tool_name}"
+            "execute_tool": "POST /tools/{tool_name}",
+            "upload_document": "POST /projects/{project_id}/documents",
+            "add_faq": "POST /projects/{project_id}/faqs",
+            "rebuild_indexes": "POST /projects/{project_id}/rebuild-indexes",
+            "build_status": "GET /projects/{project_id}/build-status"
         },
         "tools_available": len(worker.tool_manager.get_enabled_tools())
     }
@@ -582,6 +843,49 @@ async def execute_tool(
         return result.to_dict()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Tool execution failed: {str(e)}")
+
+
+# @app.post("/projects/{project_id}/documents")
+# async def upload_document(
+#     project_id: str = FastAPIPath(..., description="Project ID"),
+#     file: UploadFile = File(..., description="Document file (PDF or DOCX)")
+# ) -> DocumentUploadResponse:
+#     """Upload and process a document for ingestion into the knowledge base"""
+#     return await worker.ingest_document(project_id, file, None)
+
+# Document upload endpoint disabled until python-multipart is installed
+@app.post("/projects/{project_id}/documents-disabled")  
+async def upload_document_disabled():
+    """Document upload requires python-multipart to be installed"""
+    raise HTTPException(
+        status_code=501, 
+        detail="Document upload requires: pip install python-multipart python-docx PyPDF2"
+    )
+
+
+@app.post("/projects/{project_id}/faqs")
+async def add_faq(
+    faq_request: FAQCreateRequest,
+    project_id: str = FastAPIPath(..., description="Project ID")
+) -> DocumentUploadResponse:
+    """Add a new FAQ entry to the project"""
+    return await worker.add_faq(project_id, faq_request.question, faq_request.answer)
+
+
+@app.post("/projects/{project_id}/rebuild-indexes")
+async def rebuild_indexes(
+    project_id: str = FastAPIPath(..., description="Project ID")
+) -> IndexBuildResponse:
+    """Manually trigger index rebuild for a project"""
+    return await worker.rebuild_indexes(project_id)
+
+
+@app.get("/projects/{project_id}/build-status")
+async def get_build_status(
+    project_id: str = FastAPIPath(..., description="Project ID")
+) -> IndexBuildResponse:
+    """Get current index build status for a project"""
+    return await worker.get_build_status(project_id)
 
 
 @app.get("/v1/projects/{project_id}/faqs/{faq_id}")
