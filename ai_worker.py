@@ -482,8 +482,7 @@ Please provide a helpful response based on the question and available context. I
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}
                 ],
-                max_tokens=500,
-                temperature=0.7
+                max_completion_tokens=500
             )
             
             return response.choices[0].message.content.strip()
@@ -560,43 +559,16 @@ Please provide a helpful response based on the question and available context. I
                     print(f"Error using tool {tool_name}: {e}")
                     # Continue without this tool
         
-        # Generate final answer using AI agent first, with fallback to tool/KB answers
+        # Generate final answer using AI agent - no fallbacks allowed
         project_name = self.projects.get(project_id, "Knowledge Base")
         ai_response = await self._generate_ai_response(question, search_results, tools_used, project_name)
         
-        if ai_response:
-            answer = ai_response
-        elif tool_enhanced_answer:
-            answer = tool_enhanced_answer
-        else:
-            # Handle specific question types when AI is not available
-            question_lower = question.lower()
-            
-            # Identity questions
-            if any(phrase in question_lower for phrase in ['what is your name', 'who are you', 'what are you', 'introduce yourself']):
-                answer = "I am ACD Direct's Knowledge Base AI System, pleased to meet you! I'm here to help you find information from our knowledge base. How can I assist you today?"
-            elif search_results:
-                # Use the top result for a simple answer
-                top_result = search_results[0]
-                
-                if top_result.get('type') == 'faq':
-                    answer = top_result.get('answer', 'No answer available')
-                else:
-                    # For KB entries, use content snippet
-                    content = top_result.get('content', '')
-                    # Truncate content to reasonable length
-                    if len(content) > 200:
-                        answer = content[:200] + "..."
-                    else:
-                        answer = content
-                
-                if not answer.strip():
-                    answer = "I found some relevant information, but couldn't extract a clear answer. Please check the sources below."
-            else:
-                answer = "I'm ACD Direct's Knowledge Base AI System. I couldn't find specific information to answer your question, but I'm here to help with any questions about our knowledge base."
+        if not ai_response:
+            # If AI agent fails, return an error instead of falling back
+            raise ValueError("AI agent is unavailable. Please ensure OpenAI API is properly configured and accessible.")
         
         return QueryResponse(
-            answer=answer,
+            answer=ai_response,
             sources=sources,
             project_id=project_id,
             timestamp=datetime.utcnow().isoformat(),
