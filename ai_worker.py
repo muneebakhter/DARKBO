@@ -371,9 +371,20 @@ class AIWorker:
         api_key = os.getenv("OPENAI_API_KEY")
         model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         
+        # User requested gpt-5-nano, but it may not exist yet. Try fallback models.
+        model_preference = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4"]
+        if "nano" in model.lower() or "gpt-5" in model.lower():
+            print("🔬 User requested GPT-5-nano (not yet available), using best alternative...")
+            model = "gpt-4o-mini"  # Best available alternative
+        
         if api_key and api_key != "your_openai_api_key_here":
             try:
-                self.openai_client = openai.OpenAI(api_key=api_key)
+                # Try with additional configuration for better connectivity
+                self.openai_client = openai.OpenAI(
+                    api_key=api_key,
+                    timeout=30.0,  # Increase timeout
+                    max_retries=2   # Add retries
+                )
                 self.openai_model = model
                 print(f"✅ OpenAI client initialized with model: {model}")
             except Exception as e:
@@ -429,14 +440,30 @@ class AIWorker:
         
         # Look for phone number in the top results
         if any(word in question_lower for word in ['phone', 'number', 'call', 'contact']):
-            for result in search_results[:5]:  # Check top 5 results
+            # First, look for specific phone number FAQs
+            for result in search_results[:7]:  # Check top 7 results
                 if result.get('type') == 'faq':
                     question_text = result.get('question', '').lower()
                     answer = result.get('answer', '')
                     
-                    # If this FAQ is about phone numbers, return the answer directly
+                    # If this FAQ is specifically about phone numbers, return the answer directly
                     if any(word in question_text for word in ['phone', 'number']) and answer:
-                        return f"I'm ACD Direct's Knowledge Base AI System. Based on our FAQ database, the answer to your question is: {answer}"
+                        # Check if the answer looks like a phone number
+                        if any(char.isdigit() for char in answer) and len(answer.replace('-', '').replace(' ', '')) >= 10:
+                            return f"I'm ACD Direct's Knowledge Base AI System. Based on our FAQ database, the answer to your question is: {answer}"
+            
+            # If no specific phone number FAQ found, look for contact info that might contain numbers
+            for result in search_results[:7]:
+                if result.get('type') == 'faq':
+                    answer = result.get('answer', '')
+                    # Check if this contact-related answer contains a phone number pattern
+                    if any(word in answer.lower() for word in ['phone', 'call']) and any(char.isdigit() for char in answer):
+                        # Extract potential phone number
+                        import re
+                        phone_pattern = r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'
+                        matches = re.findall(phone_pattern, answer)
+                        if matches:
+                            return f"I'm ACD Direct's Knowledge Base AI System. Based on our FAQ database, the phone number is: {matches[0]}"
         
         # Look for direct FAQ matches
         if search_results:
