@@ -7,11 +7,55 @@ Auto-discovers projects in the data/ folder without requiring proj_mapping.txt.
 
 import os
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List
 
 # Import the new versioned IndexBuilder
 from api.index_versioning import IndexBuilder
+
+
+def check_required_dependencies() -> bool:
+    """Check if required indexing dependencies are available"""
+    missing_deps = []
+    
+    try:
+        import numpy
+    except ImportError:
+        missing_deps.append("numpy>=1.24.0")
+    
+    try:
+        import sentence_transformers
+    except ImportError:
+        missing_deps.append("sentence-transformers>=2.2.0")
+    
+    try:
+        import faiss
+    except ImportError:
+        missing_deps.append("faiss-cpu>=1.7.4")
+    
+    try:
+        import whoosh
+    except ImportError:
+        missing_deps.append("whoosh>=2.7.4")
+    
+    if missing_deps:
+        print("❌ PREBUILD FAILED: Required dependencies are missing")
+        print("=" * 50)
+        print("The following libraries are required for proper indexing:")
+        for dep in missing_deps:
+            print(f"   ❌ {dep}")
+        print()
+        print("📦 Install missing dependencies with:")
+        print("   pip install " + " ".join(dep.split(">=")[0] for dep in missing_deps))
+        print()
+        print("💡 Or install all recommended dependencies:")
+        print("   pip install -r requirements.txt")
+        print()
+        print("🚫 Prebuild cannot continue without these libraries.")
+        return False
+    
+    return True
 
 
 def auto_discover_projects(data_dir: Path) -> Dict[str, str]:
@@ -66,6 +110,13 @@ def main():
     """Main prebuild function"""
     print("🚀 DARKBO Knowledge Base Prebuild")
     print("=" * 50)
+    
+    # Check required dependencies first
+    if not check_required_dependencies():
+        sys.exit(1)
+    
+    print("✅ All required dependencies are available")
+    print()
     
     # Determine the working directory and data location
     current_dir = Path(".").resolve()
@@ -140,15 +191,9 @@ def main():
     
     print(f"\n🎉 Completed: {successful} successful, {failed} failed")
     
-    try:
-        # Check for dependencies
-        import sentence_transformers
-        import faiss
-        import whoosh
-        print("\n✅ All indexing dependencies available")
-    except ImportError:
-        print("\n💡 To enable full indexing, install dependencies:")
-        print("   pip install sentence-transformers faiss-cpu whoosh")
+    # Exit with appropriate code
+    if failed > 0:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
