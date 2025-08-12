@@ -23,9 +23,13 @@ try:
     from whoosh.index import open_dir
     from whoosh.qparser import QueryParser
     import openai
+    from dotenv import load_dotenv
     HAS_DEPS = True
 except ImportError:
     HAS_DEPS = False
+
+# Load environment variables from .env file
+load_dotenv()
 
 from api.models import FAQEntry, KBEntry
 from api.storage import FileStorageManager
@@ -341,6 +345,11 @@ class AIWorker:
         self.retrievers = {}  # Cache retrievers
         self.tool_manager = ToolManager()  # Initialize tool manager
         self.storage = FileStorageManager(str(self.base_dir))  # Storage manager
+        
+        # Initialize OpenAI client
+        self.openai_client = None
+        self.openai_model = "gpt-4o-mini"  # Default model for cost efficiency
+        self._setup_openai()
     
     def _load_projects(self) -> Dict[str, str]:
         """Load project mapping"""
@@ -356,6 +365,23 @@ class AIWorker:
                         projects[project_id.strip()] = name.strip()
         
         return projects
+    
+    def _setup_openai(self):
+        """Setup OpenAI client with API key from environment"""
+        api_key = os.getenv("OPENAI_API_KEY")
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        
+        if api_key and api_key != "your_openai_api_key_here":
+            try:
+                self.openai_client = openai.OpenAI(api_key=api_key)
+                self.openai_model = model
+                print(f"✅ OpenAI client initialized with model: {model}")
+            except Exception as e:
+                print(f"⚠️ Failed to initialize OpenAI client: {e}")
+                self.openai_client = None
+        else:
+            print("⚠️ No valid OpenAI API key found. AI responses will be limited to knowledge base content.")
+            self.openai_client = None
     
     def get_retriever(self, project_id: str) -> KnowledgeBaseRetriever:
         """Get or create retriever for project"""
@@ -394,6 +420,77 @@ class AIWorker:
                     return KBEntry.from_dict(kb_item)
         
         return None
+    
+    async def _generate_ai_response(self, question: str, search_results: List[Dict], tools_used: List[ToolUsage], project_name: str = None) -> Optional[str]:
+        """Generate AI response using OpenAI API with RAG context"""
+        if not self.openai_client:
+            return None
+        
+        try:
+            # Prepare system prompt
+            system_prompt = f"""You are ACD Direct's Knowledge Base AI System, a helpful and knowledgeable assistant. 
+You have access to a comprehensive knowledge base and various tools to provide accurate information.
+
+Your primary role is to:
+1. Answer questions using the provided knowledge base context when relevant
+2. Use tool results when they provide current or specific information
+3. Introduce yourself appropriately when asked about your identity
+4. Be helpful, accurate, and conversational
+
+Project context: {project_name or 'Knowledge Base System'}"""
+
+            # Prepare context from search results
+            context_parts = []
+            if search_results:
+                context_parts.append("=== KNOWLEDGE BASE CONTEXT ===")
+                for i, result in enumerate(search_results[:3], 1):  # Limit to top 3 for context window
+                    if result.get('type') == 'faq':
+                        context_parts.append(f"{i}. FAQ - {result.get('question', 'N/A')}")
+                        context_parts.append(f"   Answer: {result.get('answer', 'N/A')}")
+                    else:
+                        context_parts.append(f"{i}. Article - {result.get('article', 'N/A')}")
+                        content = result.get('content', '')
+                        # Truncate long content
+                        if len(content) > 300:
+                            content = content[:300] + "..."
+                        context_parts.append(f"   Content: {content}")
+                    context_parts.append("")
+            
+            # Add tool results context
+            if tools_used:
+                context_parts.append("=== TOOL RESULTS ===")
+                for tool in tools_used:
+                    if tool.success and tool.result.get('data'):
+                        context_parts.append(f"Tool: {tool.tool_name}")
+                        context_parts.append(f"Result: {tool.result['data']}")
+                        context_parts.append("")
+            
+            # Prepare user message
+            context_text = "\n".join(context_parts) if context_parts else "No specific context available."
+            user_message = f"""Question: {question}
+
+Context:
+{context_text}
+
+Please provide a helpful response based on the question and available context. If the question is about your identity, introduce yourself as "ACD Direct's Knowledge Base AI System"."""
+
+            # Make OpenAI API call
+            response = await asyncio.to_thread(
+                self.openai_client.chat.completions.create,
+                model=self.openai_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                max_tokens=500,
+                temperature=0.7
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            print(f"Error generating AI response: {e}")
+            return None
     
     async def answer_question(self, project_id: str, question: str, use_tools: bool = True) -> QueryResponse:
         """Generate answer with sources and optional tool assistance"""
@@ -463,28 +560,40 @@ class AIWorker:
                     print(f"Error using tool {tool_name}: {e}")
                     # Continue without this tool
         
-        # Generate final answer
-        if tool_enhanced_answer:
+        # Generate final answer using AI agent first, with fallback to tool/KB answers
+        project_name = self.projects.get(project_id, "Knowledge Base")
+        ai_response = await self._generate_ai_response(question, search_results, tools_used, project_name)
+        
+        if ai_response:
+            answer = ai_response
+        elif tool_enhanced_answer:
             answer = tool_enhanced_answer
-        elif search_results:
-            # Use the top result for a simple answer
-            top_result = search_results[0]
-            
-            if top_result.get('type') == 'faq':
-                answer = top_result.get('answer', 'No answer available')
-            else:
-                # For KB entries, use content snippet
-                content = top_result.get('content', '')
-                # Truncate content to reasonable length
-                if len(content) > 200:
-                    answer = content[:200] + "..."
-                else:
-                    answer = content
-            
-            if not answer.strip():
-                answer = "I found some relevant information, but couldn't extract a clear answer. Please check the sources below."
         else:
-            answer = "I couldn't find relevant information to answer your question."
+            # Handle specific question types when AI is not available
+            question_lower = question.lower()
+            
+            # Identity questions
+            if any(phrase in question_lower for phrase in ['what is your name', 'who are you', 'what are you', 'introduce yourself']):
+                answer = "I am ACD Direct's Knowledge Base AI System, pleased to meet you! I'm here to help you find information from our knowledge base. How can I assist you today?"
+            elif search_results:
+                # Use the top result for a simple answer
+                top_result = search_results[0]
+                
+                if top_result.get('type') == 'faq':
+                    answer = top_result.get('answer', 'No answer available')
+                else:
+                    # For KB entries, use content snippet
+                    content = top_result.get('content', '')
+                    # Truncate content to reasonable length
+                    if len(content) > 200:
+                        answer = content[:200] + "..."
+                    else:
+                        answer = content
+                
+                if not answer.strip():
+                    answer = "I found some relevant information, but couldn't extract a clear answer. Please check the sources below."
+            else:
+                answer = "I'm ACD Direct's Knowledge Base AI System. I couldn't find specific information to answer your question, but I'm here to help with any questions about our knowledge base."
         
         return QueryResponse(
             answer=answer,

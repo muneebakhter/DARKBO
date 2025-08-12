@@ -39,8 +39,8 @@
     "id": "25511a12-1151-57e6-a0f5-7d32885cc18d",
     "question": "What is the testing system for DARKBO?",
     "answer": "DARKBO includes comprehensive testing for document ingestion, FAQ management, and versioned indexing to ensure reliable operation.",
-    "created_at": "2025-08-12T15:08:13.561246",
-    "updated_at": "2025-08-12T15:08:13.561250",
+    "created_at": "2025-08-12T15:58:34.145514",
+    "updated_at": "2025-08-12T15:58:34.145520",
     "source": "manual",
     "source_file": null
   }
