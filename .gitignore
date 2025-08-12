@@ -214,6 +214,9 @@ checkpoints/
 *.index
 *.faiss
 
+# Sample/test data directory (can be recreated with create_sample_data.py)
+data/
+
 # Environment and temp files
 .env
 .envrc
