@@ -177,3 +177,12 @@ This ensures:
 ---
 
 *Always refer to this file before testing and committing changes to ensure proper cleanup procedures.*
+
+## 📄 Keeping Instructions Updated
+
+If you modify the cleanup process or add new types of generated files:
+
+1. Update `cleanup.sh` to handle new file types
+2. Update `.gitignore` if needed
+3. Update this instruction file with any new procedures
+4. Test the complete workflow to ensure everything works
