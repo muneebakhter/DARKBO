@@ -95,20 +95,49 @@ class WebSearchTool(BaseTool):
                 'no_html': '1',
                 'skip_disambig': '1'
             }
-            
+
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/117.0 Safari/537.36"
+                )
+            }
+
             # Make the request in a separate thread to avoid blocking
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None, 
-                lambda: requests.get(self.base_url, params=params, timeout=10)
-            )
-            
-            if response.status_code != 200:
+            response = None
+            # Handle transient 202 responses with retries
+            for attempt in range(3):
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: requests.get(
+                        self.base_url,
+                        params=params,
+                        headers=headers,
+                        timeout=10,
+                    ),
+                )
+
+                if response.status_code == 200:
+                    break
+                if response.status_code == 202:
+                    await asyncio.sleep(1 + attempt)
+                    continue
+                # Non-retryable status
                 return [{
                     "title": "Search Error",
                     "snippet": f"Search service returned status code {response.status_code}",
                     "url": "",
-                    "source": "error"
+                    "source": "error",
+                }]
+
+            if response is None or response.status_code != 200:
+                return [{
+                    "title": "Search Error",
+                    "snippet": f"Search service returned status code {response.status_code if response else 'N/A'}",
+                    "url": "",
+                    "source": "error",
                 }]
             
             data = response.json()
