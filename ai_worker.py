@@ -28,8 +28,13 @@ try:
 except ImportError:
     HAS_DEPS = False
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env file (optional)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv not installed, skip loading .env file
+    pass
 
 from api.models import FAQEntry, KBEntry
 from api.storage import FileStorageManager

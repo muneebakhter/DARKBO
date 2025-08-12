@@ -1,0 +1,19 @@
+{
+  "version": "v20250812_202401_bf71f474",
+  "created_at": "2025-08-12T20:24:01.997126",
+  "data_checksum": "bf71f474fd5f29d3a232f58f37bd56e1dd508d34662735ae5f898e809a41c8c6",
+  "project_id": "175",
+  "item_count": 7,
+  "faq_count": 4,
+  "kb_count": 3,
+  "indexes": {
+    "dense": {
+      "available": false,
+      "reason": "dependencies_missing"
+    },
+    "sparse": {
+      "available": false,
+      "reason": "dependencies_missing"
+    }
+  }
+}

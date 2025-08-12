@@ -1,443 +1,267 @@
 # DARKBO - Document Augmented Retrieval Knowledge Base Operator
 
-A simplified AI knowledge base system with external tools support:
+A simplified AI knowledge base system with external tools support and unified data management.
 
-1. **prebuild_kb.py** - Builds vector stores and search indexes from FAQ/KB data
-2. **ai_worker.py** - FastAPI server that answers questions with source citations and external tools
+## 🎯 Overview
 
-## 🛠️ New Tools Framework
+DARKBO is a streamlined two-script architecture that provides:
+- **Unified Data Storage**: All project data lives in the `data/` folder
+- **Auto-Discovery**: Projects are automatically detected without configuration files
+- **External Tools**: DateTime and web search tools with extensible framework  
+- **AI-Powered Responses**: OpenAI GPT integration with RAG (Retrieval-Augmented Generation)
+- **Hybrid Search**: Dense semantic + sparse keyword search with graceful fallback
+- **Source Citations**: All answers include clickable source links
 
-DARKBO now supports external tools that can enhance query responses with real-time data:
+### Core Components
 
-- **DateTime Tool**: Get current date, time, and timezone information
-- **Web Search Tool**: Search the web for current information using DuckDuckGo
-- **Extensible Framework**: Easy to add new tools for additional capabilities
+1. **create_sample_data.py** - Creates sample data in the unified `data/` folder
+2. **prebuild_kb.py** - Auto-discovers projects and builds search indexes 
+3. **ai_worker.py** - FastAPI server with AI-enhanced responses and tools support
 
-### Tools Usage Examples
+## 🚀 Quick Start
 
+### 1. Generate Sample Data
 ```bash
-# Get current time
+python3 create_sample_data.py
+```
+Creates a `data/` directory with sample ACLU and ASPCA projects.
+
+### 2. Build Knowledge Base Indexes
+```bash
+cd data
+python3 ../prebuild_kb.py
+```
+Auto-discovers projects and builds search indexes.
+
+### 3. Start the AI Worker Server
+```bash
+python3 ../ai_worker.py
+```
+Starts server on `http://localhost:8000` with full functionality.
+
+### 4. Run Complete Demo
+```bash
+./demo_unified.sh
+```
+Comprehensive demo covering all features end-to-end.
+
+## 📁 Unified Data Structure
+
+```
+data/                                    # Unified data home
+├── 95/                                  # ASPCA project (auto-discovered)
+│   ├── attachments/                     # Sample documents
+│   ├── 95.faq.json                     # FAQ entries
+│   ├── 95.kb.json                      # Knowledge base entries
+│   └── index/                          # Generated search indexes
+│       ├── dense/                      # FAISS vector indexes
+│       ├── sparse/                     # Whoosh text indexes
+│       └── meta.json                   # Index metadata
+├── 175/                                # ACLU project (auto-discovered)
+│   ├── attachments/
+│   ├── 175.faq.json
+│   ├── 175.kb.json
+│   └── index/
+└── proj_mapping.txt                    # Auto-generated (no longer required)
+```
+
+## 🛠️ External Tools Framework
+
+DARKBO automatically enhances responses using external tools:
+
+### Available Tools
+- **DateTime Tool**: Current date, time, and timezone information
+- **Web Search Tool**: DuckDuckGo search integration
+- **Extensible Framework**: Easy to add new tools
+
+### Tool Usage Examples
+```bash
+# DateTime integration
 curl -X POST "http://localhost:8000/query" \
   -H "Content-Type: application/json" \
   -d '{"project_id": "95", "question": "What time is it now?"}'
 
-# Get current date  
-curl -X POST "http://localhost:8000/query" \
-  -H "Content-Type: application/json" \
-  -d '{"project_id": "95", "question": "What date is today?"}'
-
-# Web search (combined with KB knowledge)
+# Web search integration
 curl -X POST "http://localhost:8000/query" \
   -H "Content-Type: application/json" \
   -d '{"project_id": "95", "question": "What is machine learning?"}'
-```
 
-### Direct Tool Access
-
-```bash
-# List available tools
+# Direct tool access
 curl "http://localhost:8000/tools"
-
-# Execute datetime tool directly
-curl -X POST "http://localhost:8000/tools/datetime" \
-  -H "Content-Type: application/json" \
-  -d '{"format": "%Y-%m-%d %H:%M:%S"}'
-
-# Execute web search tool directly  
-curl -X POST "http://localhost:8000/tools/web_search" \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Python programming", "max_results": 3}'
+curl -X POST "http://localhost:8000/tools/datetime" -d '{"format": "%B %d, %Y"}'
 ```
 
-## 📁 File Structure
+## 🤖 AI-Enhanced Responses
 
-```
-proj_mapping.txt                             # "<id>\t<name>\n"
-<project_id>/
-  attachments/                               # raw docs uploaded (optional keep)
-  <project_id>.faq.json                      # [{"id","question","answer",...}]
-  <project_id>.kb.json                       # [{"id","article","content",...}]
-  index/                                     # derived: embeddings, bm25, caches
-    dense/                                   # FAISS/Qdrant/pgvector
-    sparse/                                  # Whoosh/Elastic/Tantivy index
-    meta.json                                # checksums, versions, counts
-```
+### AI Agent Features
+- **Intelligent Identity**: Introduces itself as "ACD Direct's Knowledge Base AI System"
+- **Context-Aware**: Combines knowledge base content with AI generation
+- **Tool Integration**: Incorporates external tool results into responses
+- **Graceful Fallback**: Enhanced responses even without OpenAI API key
 
-## 🚀 Quick Start
-
-### Prerequisites
-
-Install Python 3.8+ and required dependencies:
-
+### Configuration
+Create `.env` file for AI features:
 ```bash
-# Minimal installation (metadata-only indexes)
-pip install fastapi uvicorn pydantic
-
-# Full installation (with vector search capabilities)
-pip install fastapi uvicorn pydantic sentence-transformers faiss-cpu whoosh numpy
-
-# Optional: Enhanced answer generation
-pip install openai
-```
-
-### 1. Generate Sample Data
-
-Use the included script to create sample data:
-
-```bash
-# Generate sample ACLU and ASPCA projects with FAQs, KB entries, and attachments
-python3 create_sample_data.py
-```
-
-This creates a `sample_data/` directory with:
-- Project directories (175/ for ACLU, 95/ for ASPCA)  
-- FAQ and KB JSON files
-- Sample attachments
-- Project mapping file
-
-### 1a. Alternative: Prepare Your Own Data
-
-If you want to use your own data instead of samples:
-
-```bash
-# Create project mapping file
-echo -e "95\tASPCA\n175\tACLU" > proj_mapping.txt
-
-# Create project directories with FAQ and KB data
-mkdir -p 95 175
-# Add your 95.faq.json, 95.kb.json, 175.faq.json, 175.kb.json files
-```
-
-### 2. Build Knowledge Base Indexes
-
-```bash
-# Change to the sample_data directory (or your data directory)
-cd sample_data
-
-# Build indexes for all projects
-python3 ../prebuild_kb.py
-```
-
-This will:
-- Load FAQ and KB data from project directories
-- Build dense vector indexes (if dependencies available)
-- Build sparse text indexes (if dependencies available)  
-- Create metadata for change detection
-- Output progress for each project
-
-### 3. Start the AI Worker Server
-
-```bash
-# Start server from the data directory
-python3 ../ai_worker.py
-```
-
-The server will start on `http://localhost:8000` with the following endpoints:
-- `POST /query` - Ask questions and get answers with sources
-- `GET /projects` - List available projects
-- `GET /v1/projects/{project_id}/faqs/{faq_id}` - Get FAQ by ID
-- `GET /v1/projects/{project_id}/kb/{kb_id}` - Get KB entry by ID
-
-### 4. Test the System
-
-```bash
-# Generate sample data and test the complete system
-python3 create_sample_data.py
-cd sample_data
-python3 ../prebuild_kb.py  
-python3 ../ai_worker.py
-
-# In another terminal, test queries:
-curl -X POST "http://localhost:8000/query" \
-  -H "Content-Type: application/json" \
-  -d '{"project_id": "95", "question": "What does ASPCA stand for?"}'
-```
-
-### 5. Run Complete Demo
-
-```bash
-# Run the included demo script that shows the full workflow
-./demo.sh
+OPENAI_API_KEY=your_api_key_here
+OPENAI_MODEL=gpt-4o-mini
 ```
 
 ## 📡 API Endpoints
 
-### Core Query Endpoint (Enhanced with AI Agent and Tools)
-
-**AI Agent Identity:**
+### Core Query System
 ```bash
-# Ask about the system's identity
-curl -X POST "http://localhost:8000/query" \
-  -H "Content-Type: application/json" \
-  -d '{"project_id": "95", "question": "What is your name?"}'
-
-# Response:
+# Ask questions with AI enhancement
+POST /query
 {
-  "answer": "I am ACD Direct's Knowledge Base AI System, pleased to meet you! I'm here to help you find information from our knowledge base. How can I assist you today?",
-  "sources": [...],
   "project_id": "95",
-  "timestamp": "2025-08-12T15:58:54.231246",
-  "tools_used": null
+  "question": "What does ASPCA stand for?"
 }
-```
 
-**Knowledge Base Queries with AI Enhancement:**
-```bash
-# Ask a knowledge base question (AI provides context-aware response)
-curl -X POST "http://localhost:8000/query" \
-  -H "Content-Type: application/json" \
-  -d '{"project_id": "95", "question": "What does ASPCA stand for?"}'
-
-# Response:
+# Response includes AI-generated answer, sources, and tools used
 {
-  "answer": "ASPCA stands for the American Society for the Prevention of Cruelty to Animals. [AI-enhanced response with context]",
+  "answer": "ASPCA stands for the American Society for the Prevention of Cruelty to Animals...",
   "sources": [...],
+  "tools_used": [...],
   "project_id": "95",
-  "timestamp": "2025-08-12T15:58:54.231246"
+  "timestamp": "2025-08-12T20:15:00"
 }
 ```
 
-**Tool Integration:**
+### Project Management
 ```bash
-# Ask a time-based question (automatically uses datetime tool)
-curl -X POST "http://localhost:8000/query" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "project_id": "95",
-    "question": "What time is it now?"
-  }'
+GET /projects                            # List all auto-discovered projects
+GET /projects/{id}/build-status          # Check index build status  
+POST /projects/{id}/rebuild-indexes      # Manually trigger rebuild
+POST /projects/{id}/faqs                 # Add new FAQs (triggers rebuild)
 ```
 
-Response includes answer, sources, and tools used:
-```json
-{
-  "answer": "The current time is 2025-08-11T23:30:35.898854+00:00.",
-  "sources": [...],
-  "project_id": "95", 
-  "timestamp": "2025-08-11T23:30:35.898938",
-  "tools_used": [
-    {
-      "tool_name": "datetime",
-      "parameters": {},
-      "result": {
-        "success": true,
-        "data": {
-          "current_datetime": "2025-08-11T23:30:35.898854+00:00",
-          "weekday": "Monday",
-          ...
-        }
-      },
-      "success": true,
-      "execution_time": 4.076957702636719e-05
-    }
-  ]
-}
+### Source Retrieval
+```bash
+GET /v1/projects/{id}/faqs/{faq_id}      # Get FAQ by ID
+GET /v1/projects/{id}/kb/{kb_id}         # Get KB entry by ID
 ```
 
-### Tools Management Endpoints
-
+### Tools Management
 ```bash
-# List available tools
-curl "http://localhost:8000/tools"
-
-# Execute a specific tool
-curl -X POST "http://localhost:8000/tools/datetime" \
-  -H "Content-Type: application/json" \
-  -d '{"format": "%B %d, %Y"}'
-
-# Web search
-curl -X POST "http://localhost:8000/tools/web_search" \
-  -H "Content-Type: application/json" \  
-  -d '{"query": "latest AI news", "max_results": 5}'
+GET /tools                               # List available tools
+POST /tools/{tool_name}                  # Execute tool directly
 ```
 
-### Source Retrieval Endpoints
+## 📦 Installation
 
+### Minimal Installation (Core functionality)
 ```bash
-# Get FAQ by ID (returns attachment file if exists, otherwise JSON)
-curl "http://localhost:8000/v1/projects/95/faqs/1766291f-f2f5-5f01-b1bb-fc95501ab163"
-
-# Get KB entry by ID (returns attachment file if exists, otherwise JSON)  
-curl "http://localhost:8000/v1/projects/95/kb/b91e6501-9bc9-5f31-b0e3-368eb49d8e12"
-
-# List available projects
-curl "http://localhost:8000/projects"
+pip install fastapi uvicorn pydantic requests
 ```
 
-## 🧪 Testing
-
-### Test Core Functionality
+### Full Installation (Enhanced search)
 ```bash
-# Generate sample data and test complete workflow
+pip install fastapi uvicorn pydantic sentence-transformers faiss-cpu whoosh requests
+```
+
+### AI Enhancement (Optional)
+```bash
+pip install openai
+```
+
+### Document Processing (Optional)
+```bash
+pip install python-multipart python-docx PyPDF2
+```
+
+## 🔧 Key Features
+
+### Simplified Architecture
+- **No Configuration Files**: Auto-discovery eliminates proj_mapping.txt
+- **Unified Data Home**: All data in `data/` folder for easy management
+- **Two-Script Workflow**: Simple prebuild + server architecture
+- **Graceful Degradation**: Works with minimal dependencies
+
+### Advanced Search
+- **Hybrid Search**: Dense semantic + sparse keyword search
+- **Auto-Fallback**: Basic keyword search when ML dependencies unavailable
+- **Source Citations**: All results include clickable source links
+- **Stable IDs**: UUID5-based IDs for reliable references
+
+### Document Management
+- **Versioned Indexes**: Atomic updates with background rebuilding
+- **Attachment Support**: Serves original uploaded documents
+- **Change Detection**: Only rebuilds when data actually changes
+- **Build Monitoring**: Real-time build status tracking
+
+### Tool Integration
+- **Smart Selection**: Automatic tool selection based on query content
+- **Error Resilience**: Tool failures don't break main functionality
+- **Extensible Framework**: Easy to add new tool capabilities
+- **Graceful Handling**: Network issues handled transparently
+
+## 🧹 Maintenance
+
+### Cleanup Script
+```bash
+./cleanup.sh                            # Remove all generated data and indexes
+```
+
+### Regenerate Data
+```bash
+python3 create_sample_data.py           # Create fresh sample data
+cd data && python3 ../prebuild_kb.py    # Rebuild indexes
+```
+
+## 🧪 Testing & Demo
+
+### Run Unified Demo
+```bash
+./demo_unified.sh                       # Complete system demonstration
+```
+
+### Manual Testing
+```bash
+# Generate data and start server
 python3 create_sample_data.py
-cd sample_data
+cd data
 python3 ../prebuild_kb.py
 python3 ../ai_worker.py
 
-# In another terminal, test queries:
+# Test in another terminal
 curl -X POST "http://localhost:8000/query" \
   -H "Content-Type: application/json" \
   -d '{"project_id": "95", "question": "What does ASPCA stand for?"}'
 ```
 
-### Run Complete Integration Test
-```bash
-# Run automated demo that tests the full system
-./demo.sh
-```
+## 🔄 Migration & Changes
 
-## 📦 Dependencies
+### Key Improvements
+- **Unified Data Structure**: `sample_data/` → `data/` (single source of truth)
+- **Auto-Discovery**: Removed dependency on `proj_mapping.txt`
+- **Consolidated Demos**: 3 separate demo scripts → 1 comprehensive script
+- **Enhanced Documentation**: 4 separate .md files → 1 consolidated guide
+- **Improved Tools**: Better integration and error handling
 
-### Required (core functionality)
-```bash
-pip install fastapi uvicorn pydantic
-```
+### Removed Components
+- Multiple demo scripts (demo.sh, demo_new_features.sh, tools_demo.sh)
+- Project mapping file requirement (proj_mapping.txt)
+- Scattered documentation files
+- Complex configuration requirements
 
-### Optional (enhanced search)
-```bash
-pip install sentence-transformers faiss-cpu whoosh numpy
-```
+## 🎯 Use Cases
 
-### Optional (AI-powered answers)
-```bash
-pip install openai
-export OPENAI_API_KEY=your_key_here
-```
+### Knowledge Base Management
+- FAQ systems with intelligent search
+- Document repositories with AI enhancement  
+- Customer support knowledge bases
+- Internal documentation systems
 
-## 🔧 Configuration
+### External Data Integration
+- Real-time information with web search
+- Time-sensitive queries with datetime tools
+- Combined internal + external knowledge responses
+- Tool-enhanced customer support
 
-### Environment Variables
+### Development & Integration
+- RESTful API for easy integration
+- File-based storage for simple deployment
+- Modular tool framework for extensions
+- AI-ready architecture for enhanced responses
 
-DARKBO now supports AI-powered responses using OpenAI's GPT models. Create a `.env` file in the root directory:
-
-```bash
-# Copy .env.example to .env and configure
-cp .env.example .env
-
-# Edit .env file with your OpenAI API key
-OPENAI_API_KEY=your_actual_openai_api_key_here
-OPENAI_MODEL=gpt-4o-mini  # Optional: specify model (default: gpt-4o-mini)
-
-# Server configuration (optional)
-HOST=0.0.0.0
-PORT=8000
-```
-
-**AI Agent Features:**
-- 🤖 **Intelligent Responses**: Uses GPT to generate contextual answers
-- 📚 **RAG Integration**: Combines knowledge base content with AI generation
-- 🔄 **Graceful Fallback**: Works without OpenAI key using enhanced fallback logic
-- 🎭 **Identity Awareness**: Introduces itself as "ACD Direct's Knowledge Base AI System"
-- 🛠️ **Tool Integration**: Incorporates datetime and web search results into responses
-
-**Without OpenAI API Key:**
-The system provides intelligent fallback responses for common question types and maintains full knowledge base functionality.
-
-## 🎯 Key Features
-
-- **🤖 AI-Powered Responses**: OpenAI GPT integration with RAG (Retrieval-Augmented Generation)
-- **🎭 Intelligent Identity**: AI agent identifies as "ACD Direct's Knowledge Base AI System"
-- **📚 Context-Aware Answers**: Combines knowledge base content with AI generation
-- **🔄 Graceful Fallback**: Enhanced fallback logic when OpenAI is unavailable
-- **🛠️ External Tools Support**: DateTime and web search tools with extensible framework
-- **🔍 Hybrid Vector Store**: Combines dense (semantic) and sparse (keyword) search when dependencies available
-- **📋 Source Citations**: All answers include clickable source links
-- **🏗️ Simple Two-Script Architecture**: Just prebuild_kb.py and ai_worker.py
-- **📎 File Attachments**: Serves original files when available
-- **⚡ Fast Setup**: File-based storage, no external databases required
-
-## 📋 Scripts Overview
-
-### prebuild_kb.py
-- Processes FAQ and KB JSON files
-- Builds FAISS dense vector indexes (semantic search) when dependencies available
-- Builds Whoosh sparse text indexes (keyword search) when dependencies available
-- Creates metadata for change detection
-- Works with or without ML dependencies (graceful degradation)
-
-### ai_worker.py
-- FastAPI server with query endpoints
-- Loads prebuilt indexes for fast hybrid search
-- Returns answers with source citations using dense + sparse + basic search
-- Serves attachment files when available
-- Handles multiple projects
-
-## 📋 Sample Data Format
-
-### FAQ Format (`<project_id>.faq.json`)
-```json
-[
-  {
-    "id": "uuid-here",
-    "question": "What does ASPCA stand for?",
-    "answer": "American Society for the Prevention of Cruelty to Animals",
-    "created_at": "2025-08-11T21:20:31.773424",
-    "updated_at": "2025-08-11T21:20:31.773426",
-    "source": "manual",
-    "source_file": null
-  }
-]
-```
-
-### Knowledge Base Format (`<project_id>.kb.json`)
-```json
-[
-  {
-    "id": "uuid-here", 
-    "article": "Mission and History",
-    "content": "The ASPCA was founded in 1866...",
-    "created_at": "2025-08-11T21:20:31.774353",
-    "updated_at": "2025-08-11T21:20:31.774355",
-    "source": "upload",
-    "source_file": "aspca_mission.txt",
-    "chunk_index": null
-  }
-]
-```
-
-## 🎯 Key Features
-
-- **Simplified Architecture**: Just two scripts - prebuild and worker
-- **Hybrid Vector Store**: Combines dense (FAISS semantic) and sparse (Whoosh keyword) search
-- **Source Citations**: All answers include clickable source links
-- **File Attachments**: Serves original files when available
-- **Metadata Tracking**: Checksums and versions for change detection
-- **Graceful Degradation**: Works with or without ML dependencies
-
-## 🔄 Migration from Complex Setup
-
-The new simplified structure replaces the previous complex FastAPI application with multiple endpoints. Key changes:
-
-- **Removed**: Complex ingestion, project management, batch operations
-- **Kept**: Core query functionality with source citations  
-- **Added**: Prebuild step for better performance
-- **Simplified**: File-based storage, minimal dependencies
-
-## 📚 Architecture
-
-```
-┌─────────────────┐    ┌─────────────────┐
-│   prebuild_kb   │    │   ai_worker     │
-│                 │    │                 │
-│ • Load FAQ/KB   │    │ • Load indexes  │
-│ • Build indexes │    │ • Serve queries │
-│ • Save metadata │    │ • Return sources│
-└─────────────────┘    └─────────────────┘
-         │                       │
-         ▼                       ▼
-┌─────────────────────────────────────────┐
-│             File System                 │
-│                                         │
-│ proj_mapping.txt                        │
-│ 95/                                     │
-│   ├── 95.faq.json                      │
-│   ├── 95.kb.json                       │
-│   ├── attachments/                     │
-│   └── index/                           │
-│       ├── dense/                       │
-│       ├── sparse/                      │
-│       └── meta.json                    │
-└─────────────────────────────────────────┘
-```
-
-This optimized structure focuses on the core use case: fast, accurate answers with proper source attribution.
+This simplified, unified architecture focuses on core functionality while maintaining powerful features and easy extensibility.

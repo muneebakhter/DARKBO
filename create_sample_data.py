@@ -15,10 +15,10 @@ from api.models import FAQEntry, KBEntry
 
 def create_sample_data():
     """Create sample data structure"""
-    print("🗂️ Creating sample DARKBO data structure...")
+    print("🗂️ Creating DARKBO data structure...")
     
-    # Use current directory/sample_data for demo
-    base_dir = Path("./sample_data")
+    # Use data/ folder as the unified home for all data
+    base_dir = Path("./data")
     storage = FileStorageManager(str(base_dir))
     
     # Create ACLU project (175)
@@ -173,7 +173,8 @@ If you witness animal cruelty:
         kb_entries = storage.load_kb_entries(project_id)
         print(f"   {project_name} ({project_id}): {len(faqs)} FAQs, {len(kb_entries)} KB entries")
     
-    print(f"\n🎉 Sample data created successfully in: {base_dir.absolute()}")
+    print(f"\n🎉 Data created successfully in: {base_dir.absolute()}")
+    print(f"📂 All project data is now stored in the unified data/ folder")
     return base_dir
 
 def print_directory_tree(path: Path, prefix: str = "", max_depth: int = 3, current_depth: int = 0):
