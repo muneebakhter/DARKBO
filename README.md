@@ -71,7 +71,7 @@ DARKBO automatically enhances responses using external tools:
 
 ### Available Tools
 - **DateTime Tool**: Current date, time, and timezone information
-- **Web Search Tool**: DuckDuckGo search integration
+- **Web Search Tool**: Searx search integration
 - **Extensible Framework**: Easy to add new tools
 
 ### Tool Usage Examples
