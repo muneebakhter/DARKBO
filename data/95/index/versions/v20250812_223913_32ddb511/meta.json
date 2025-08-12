@@ -1,0 +1,19 @@
+{
+  "version": "v20250812_223913_32ddb511",
+  "created_at": "2025-08-12T22:39:13.512841",
+  "data_checksum": "32ddb51115b62e9aa4106704d5aae3f3df254477899503259b61e8ad8356d434",
+  "project_id": "95",
+  "item_count": 5,
+  "faq_count": 3,
+  "kb_count": 2,
+  "indexes": {
+    "dense": {
+      "available": false,
+      "type": "faiss"
+    },
+    "sparse": {
+      "available": true,
+      "type": "whoosh"
+    }
+  }
+}
