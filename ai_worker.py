@@ -180,14 +180,19 @@ class KnowledgeBaseRetriever:
             
             results = []
             for score, idx in zip(scores[0], indices[0]):
-                if idx < len(self.dense_metadata):
+                # Convert numpy types to Python types to avoid type issues
+                idx = int(idx)
+                score = float(score)
+                
+                # Validate index bounds
+                if 0 <= idx < len(self.dense_metadata):
                     result = self.dense_metadata[idx].copy()
-                    result['score'] = float(score)
+                    result['score'] = score
                     results.append(result)
             
             return results
         except Exception as e:
-            print(f"Dense search error: {e}")
+            print(f"Dense search error: {str(e)}")
             return []
     
     def search_sparse(self, query: str, top_k: int = 5) -> List[Dict]:
@@ -216,7 +221,7 @@ class KnowledgeBaseRetriever:
                 
                 return results
         except Exception as e:
-            print(f"Sparse search error: {e}")
+            print(f"Sparse search error: {str(e)}")
             return []
     
     def search(self, query: str, top_k: int = 5) -> List[Dict]:
@@ -434,12 +439,27 @@ class AIWorker:
     
     def _generate_fallback_response(self, question: str, search_results: List[Dict], tools_used: List[ToolUsage], project_name: str = None) -> str:
         """Generate intelligent fallback response when AI is unavailable"""
+        print("AI Agent: Generating fallback response (AI unavailable)")
+        
+        # Check for datetime tool results first
+        datetime_result = None
+        for tool in tools_used:
+            if tool.tool_name == "datetime" and tool.success:
+                datetime_result = tool.result.get('data', {})
+                break
+        
+        if datetime_result:
+            current_time = datetime_result.get('current_datetime', 'N/A')
+            weekday = datetime_result.get('weekday', 'N/A')
+            print(f"AI Agent: Using datetime tool result in fallback: {current_time}")
+            return f"I'm ACD Direct's Knowledge Base AI System. The current date and time is {current_time} ({weekday}). For additional information, please check the sources provided."
         
         # Check if we have a direct FAQ match for phone number queries
         question_lower = question.lower()
         
         # Look for phone number in the top results
         if any(word in question_lower for word in ['phone', 'number', 'call', 'contact']):
+            print("AI Agent: Detected phone/contact query in fallback")
             # First, look for specific phone number FAQs
             for result in search_results[:7]:  # Check top 7 results
                 if result.get('type') == 'faq':
@@ -450,6 +470,7 @@ class AIWorker:
                     if any(word in question_text for word in ['phone', 'number']) and answer:
                         # Check if the answer looks like a phone number
                         if any(char.isdigit() for char in answer) and len(answer.replace('-', '').replace(' ', '')) >= 10:
+                            print(f"AI Agent: Found phone number FAQ in fallback")
                             return f"I'm ACD Direct's Knowledge Base AI System. Based on our FAQ database, the answer to your question is: {answer}"
             
             # If no specific phone number FAQ found, look for contact info that might contain numbers
@@ -463,6 +484,7 @@ class AIWorker:
                         phone_pattern = r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'
                         matches = re.findall(phone_pattern, answer)
                         if matches:
+                            print(f"AI Agent: Extracted phone number from FAQ in fallback")
                             return f"I'm ACD Direct's Knowledge Base AI System. Based on our FAQ database, the phone number is: {matches[0]}"
         
         # Look for direct FAQ matches
@@ -471,21 +493,27 @@ class AIWorker:
             if best_result.get('type') == 'faq' and best_result.get('score', 0) > 5:
                 answer = best_result.get('answer', '')
                 if answer:
+                    print(f"AI Agent: Using best FAQ match in fallback (score: {best_result.get('score', 0)})")
                     return f"I'm ACD Direct's Knowledge Base AI System. Based on our knowledge base: {answer}"
         
         # Generic fallback when we have sources but no direct match
         if search_results:
+            print(f"AI Agent: Generic fallback with {len(search_results)} sources")
             return f"I'm ACD Direct's Knowledge Base AI System. I found some relevant information in our knowledge base, but I'm currently unable to provide a detailed response due to a temporary service issue. Please check the sources provided for more information."
         
         # Final fallback
+        print("AI Agent: Final fallback response (no sources found)")
         return f"I'm ACD Direct's Knowledge Base AI System. I'm currently unable to access detailed information due to a temporary service issue. Please try again later or contact us directly."
 
     async def _generate_ai_response(self, question: str, search_results: List[Dict], tools_used: List[ToolUsage], project_name: str = None) -> Optional[str]:
         """Generate AI response using OpenAI API with RAG context"""
         if not self.openai_client:
+            print("AI Agent: OpenAI client not available, skipping AI response generation")
             return None
         
         try:
+            print("AI Agent: Preparing context for OpenAI API call")
+            
             # Prepare system prompt
             system_prompt = f"""You are ACD Direct's Knowledge Base AI System, a helpful and knowledgeable assistant. 
 You have access to a comprehensive knowledge base and various tools to provide accurate information.
@@ -506,6 +534,7 @@ Project context: {project_name or 'Knowledge Base System'}"""
             context_parts = []
             if search_results:
                 context_parts.append("=== KNOWLEDGE BASE CONTEXT ===")
+                print(f"AI Agent: Including {len(search_results)} KB results in context")
                 for i, result in enumerate(search_results[:7], 1):  # Increased from 3 to 7 for better context
                     if result.get('type') == 'faq':
                         context_parts.append(f"{i}. FAQ - {result.get('question', 'N/A')}")
@@ -520,6 +549,7 @@ Project context: {project_name or 'Knowledge Base System'}"""
             # Add tool results context
             if tools_used:
                 context_parts.append("=== TOOL RESULTS ===")
+                print(f"AI Agent: Including {len(tools_used)} tool results in context")
                 for tool in tools_used:
                     if tool.success and tool.result.get('data'):
                         context_parts.append(f"Tool: {tool.tool_name}")
@@ -538,6 +568,8 @@ Please provide a helpful response based ONLY on the question and available conte
 - If the question is about your identity, introduce yourself as "ACD Direct's Knowledge Base AI System".
 - If the context does not contain enough information to answer the question, clearly state that you don't have that specific information in your knowledge base."""
 
+            print("AI Agent: Making OpenAI API call...")
+            
             # Make OpenAI API call
             response = await asyncio.to_thread(
                 self.openai_client.chat.completions.create,
@@ -549,21 +581,76 @@ Please provide a helpful response based ONLY on the question and available conte
                 max_completion_tokens=1500  # Increased from 500 to allow for more comprehensive responses
             )
             
-            return response.choices[0].message.content.strip()
+            ai_answer = response.choices[0].message.content.strip()
+            print(f"AI Agent: OpenAI API call successful, generated {len(ai_answer)} character response")
+            return ai_answer
             
         except Exception as e:
-            print(f"Error generating AI response: {e}")
+            print(f"AI Agent Error: Failed to generate AI response: {str(e)}")
             return None
     
     async def answer_question(self, project_id: str, question: str, use_tools: bool = True) -> QueryResponse:
-        """Generate answer with sources and optional tool assistance"""
+        """Generate answer with sources and structured AI flow"""
+        print(f"\n=== AI AGENT PROCESSING QUERY ===")
+        print(f"Project ID: {project_id}")
+        print(f"Question: {question}")
+        print(f"Tools enabled: {use_tools}")
+        
         # Get retriever
         retriever = self.get_retriever(project_id)
         
-        # Search for relevant content in KB
-        search_results = retriever.search(question, top_k=5)
+        # STEP 1: Check if this is a time-based question
+        tools_used = []
+        datetime_keywords = ['time', 'date', 'when', 'today', 'now', 'current', 
+                           'year', 'month', 'day', 'hour', 'minute', 'clock',
+                           'calendar', 'schedule', 'deadline']
         
-        # Generate sources
+        is_time_based = any(keyword in question.lower() for keyword in datetime_keywords)
+        
+        if is_time_based and use_tools:
+            print(f"\n--- STEP 1: Time-based query detected ---")
+            print(f"AI Agent Context: Detected time-related keywords in query")
+            
+            try:
+                # Use datetime tool for time-based questions
+                tool_params = self._prepare_tool_parameters("datetime", question)
+                print(f"AI Agent: Executing datetime tool with params: {tool_params}")
+                
+                tool_result = await self.tool_manager.execute_tool("datetime", **tool_params)
+                print(f"AI Agent: Datetime tool result - Success: {tool_result.success}")
+                
+                if tool_result.success:
+                    print(f"AI Agent: Current datetime: {tool_result.data.get('current_datetime', 'N/A')}")
+                
+                tools_used.append(ToolUsage(
+                    tool_name="datetime",
+                    parameters=tool_params,
+                    result=tool_result.to_dict(),
+                    success=tool_result.success,
+                    execution_time=tool_result.execution_time
+                ))
+                
+            except Exception as e:
+                print(f"AI Agent Error: Failed to execute datetime tool: {str(e)}")
+        else:
+            print(f"\n--- STEP 1: Non-time-based query ---")
+            print(f"AI Agent Context: No time-related keywords detected")
+        
+        # STEP 2: Search the knowledge base articles
+        print(f"\n--- STEP 2: Searching Knowledge Base ---")
+        print(f"AI Agent Context: Querying knowledge base for relevant information")
+        
+        search_results = retriever.search(question, top_k=5)
+        print(f"AI Agent: Found {len(search_results)} results in knowledge base")
+        
+        # Log search results details
+        for i, result in enumerate(search_results[:3]):  # Show top 3
+            result_type = result.get('type', 'unknown')
+            score = result.get('score', 0)
+            title = result.get('question' if result_type == 'faq' else 'article', 'N/A')
+            print(f"AI Agent: Result {i+1} - Type: {result_type}, Score: {score:.2f}, Title: {title[:60]}...")
+        
+        # Generate sources from KB results
         sources = []
         for result in search_results:
             source_type = result.get('type', 'unknown')
@@ -583,53 +670,66 @@ Please provide a helpful response based ONLY on the question and available conte
                 relevance_score=result.get('score', 0.0)
             ))
         
-        # Use tools if enabled and appropriate
-        tools_used = []
-        tool_enhanced_answer = None
+        # STEP 3: If no sufficient information exists, use web search tool
+        has_sufficient_kb_info = len(search_results) > 0 and any(
+            result.get('score', 0) > 7.0 for result in search_results  # Raised threshold to 7.0 for better relevance
+        )
         
-        if use_tools:
-            suggested_tools = self.tool_manager.should_use_tool(question)
+        if not has_sufficient_kb_info and use_tools and not is_time_based:
+            print(f"\n--- STEP 3: Knowledge Base insufficient, using Web Search ---")
+            print(f"AI Agent Context: No high-confidence results in KB (threshold: 0.5)")
+            print(f"AI Agent: Attempting web search as fallback")
             
-            for tool_name in suggested_tools:
-                try:
-                    # Prepare tool parameters based on the question
-                    tool_params = self._prepare_tool_parameters(tool_name, question)
+            try:
+                # Use web search tool when KB is insufficient
+                web_search_params = self._prepare_tool_parameters("web_search", question)
+                print(f"AI Agent: Executing web search with params: {web_search_params}")
+                
+                web_tool_result = await self.tool_manager.execute_tool("web_search", **web_search_params)
+                print(f"AI Agent: Web search result - Success: {web_tool_result.success}")
+                
+                if web_tool_result.success and web_tool_result.data:
+                    web_results = web_tool_result.data.get('results', [])
+                    print(f"AI Agent: Found {len(web_results)} web search results")
                     
-                    # Execute tool
-                    tool_result = await self.tool_manager.execute_tool(tool_name, **tool_params)
-                    
-                    # Record tool usage
-                    tools_used.append(ToolUsage(
-                        tool_name=tool_name,
-                        parameters=tool_params,
-                        result=tool_result.to_dict(),
-                        success=tool_result.success,
-                        execution_time=tool_result.execution_time
-                    ))
-                    
-                    # If tool was successful, try to incorporate its result
-                    # For datetime questions, prioritize datetime tool over web search
-                    if tool_result.success and tool_result.data:
-                        potential_answer = self._incorporate_tool_result(
-                            question, tool_name, tool_result.data, search_results
-                        )
-                        
-                        # Use the answer if we don't have one yet, or if this is a datetime tool for a time question
-                        if potential_answer and (not tool_enhanced_answer or 
-                            (tool_name == "datetime" and any(word in question.lower() for word in ['time', 'date', 'when', 'today', 'now']))):
-                            tool_enhanced_answer = potential_answer
-                        
-                except Exception as e:
-                    print(f"Error using tool {tool_name}: {e}")
-                    # Continue without this tool
+                    # Log web search results
+                    for i, result in enumerate(web_results[:2]):  # Show top 2
+                        title = result.get('title', 'N/A')
+                        print(f"AI Agent: Web Result {i+1} - {title[:60]}...")
+                
+                tools_used.append(ToolUsage(
+                    tool_name="web_search",
+                    parameters=web_search_params,
+                    result=web_tool_result.to_dict(),
+                    success=web_tool_result.success,
+                    execution_time=web_tool_result.execution_time
+                ))
+                
+            except Exception as e:
+                print(f"AI Agent Error: Failed to execute web search: {str(e)}")
         
-        # Generate final answer using AI agent with intelligent fallback
+        elif has_sufficient_kb_info:
+            print(f"\n--- STEP 3: Knowledge Base sufficient, skipping web search ---")
+            print(f"AI Agent Context: Found high-confidence results in knowledge base")
+        else:
+            print(f"\n--- STEP 3: Skipping web search (time-based query or tools disabled) ---")
+        
+        # STEP 4: Generate final answer using AI agent
+        print(f"\n--- STEP 4: Generating AI Response ---")
+        print(f"AI Agent Context: Combining KB results and tool outputs into final answer")
+        
         project_name = self.projects.get(project_id, "Knowledge Base")
         ai_response = await self._generate_ai_response(question, search_results, tools_used, project_name)
         
         if not ai_response:
+            print(f"AI Agent: AI response generation failed, using fallback")
             # Intelligent fallback when AI is unavailable
             ai_response = self._generate_fallback_response(question, search_results, tools_used, project_name)
+        else:
+            print(f"AI Agent: Successfully generated AI response ({len(ai_response)} characters)")
+        
+        print(f"AI Agent: Process completed with {len(tools_used)} tools used and {len(sources)} sources")
+        print(f"=== AI AGENT PROCESSING COMPLETE ===\n")
         
         return QueryResponse(
             answer=ai_response,
