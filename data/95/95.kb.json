@@ -18,5 +18,15 @@
     "source": "upload",
     "source_file": "aspca_services.txt",
     "chunk_index": null
+  },
+  {
+    "id": "38188754-a3fd-5648-b0be-2d2332a6f9b6",
+    "article": "Test Knowledge Article",
+    "content": "Sample Knowledge Article This is a sample knowledge base article for testing document ingestion. Key Information:   Document processing should extract and clean this text   The system should create knowledge base entries from this content   Attachments should be properly stored and linked Technical Requirements: 1. PDF and DOCX support 2. Text extraction and cleaning 3. Automatic indexing into knowledge base 4. Source citation with attachment links This document tests the complete document ingestion pipeline from upload to indexing and retrieval.",
+    "created_at": "2025-08-12T22:07:22.291638",
+    "updated_at": "2025-08-12T22:07:22.291642",
+    "source": "upload",
+    "source_file": "fc3f4df2-e707-476c-949c-388fa9b0a376-kb.pdf",
+    "chunk_index": null
   }
 ]
