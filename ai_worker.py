@@ -267,16 +267,11 @@ class KnowledgeBaseRetriever:
             
             # Search in FAQs
             for faq in faqs:
-                score = 0
                 question_lower = faq.question.lower()
                 answer_lower = faq.answer.lower()
                 
-                # Simple keyword matching
-                for word in query_lower.split():
-                    if word in question_lower:
-                        score += 2  # Question matches get higher score
-                    if word in answer_lower:
-                        score += 1
+                # Calculate improved relevance score
+                score = self._calculate_relevance_score(query_lower, question_lower, answer_lower)
                 
                 if score > 0:
                     results.append({
@@ -290,16 +285,11 @@ class KnowledgeBaseRetriever:
             
             # Search in KB entries
             for kb in kb_entries:
-                score = 0
                 article_lower = kb.article.lower()
                 content_lower = kb.content.lower()
                 
-                # Simple keyword matching
-                for word in query_lower.split():
-                    if word in article_lower:
-                        score += 2  # Title matches get higher score
-                    if word in content_lower:
-                        score += 1
+                # Calculate improved relevance score
+                score = self._calculate_relevance_score(query_lower, article_lower, content_lower)
                 
                 if score > 0:
                     results.append({
@@ -339,6 +329,82 @@ class KnowledgeBaseRetriever:
                 kb_entries = [KBEntry.from_dict(item) for item in kb_data]
         
         return faqs, kb_entries
+
+    def _calculate_relevance_score(self, query_lower: str, primary_text: str, secondary_text: str) -> float:
+        """
+        Calculate improved relevance score for better matching.
+        
+        Args:
+            query_lower: The search query in lowercase
+            primary_text: Primary text to search (question for FAQ, article for KB)
+            secondary_text: Secondary text to search (answer for FAQ, content for KB)
+        
+        Returns:
+            Float score indicating relevance (higher = more relevant)
+        """
+        import re
+        
+        # Clean up query - remove punctuation and split into words
+        query_words = re.findall(r'\w+', query_lower)
+        
+        if not query_words:
+            return 0.0
+            
+        score = 0.0
+        primary_matches = 0
+        secondary_matches = 0
+        
+        # Count individual word matches
+        for word in query_words:
+            if word in primary_text:
+                score += 2.0  # Primary text matches get higher weight
+                primary_matches += 1
+            elif word in secondary_text:
+                score += 1.0  # Secondary text matches get lower weight
+                secondary_matches += 1
+        
+        # Bonus for multiple word matches (indicates higher relevance)
+        total_matches = primary_matches + secondary_matches
+        if total_matches > 1:
+            score += total_matches * 0.5  # Bonus for multiple matches
+        
+        # Give extra points for content words (non-stopwords) matching
+        # Common stop words that should get less weight
+        stop_words = {'what', 'is', 'the', 'a', 'an', 'are', 'was', 'were', 'how', 'when', 'where', 'why'}
+        content_words_in_primary = 0
+        content_words_in_secondary = 0
+        
+        for word in query_words:
+            if word not in stop_words:  # Content word
+                if word in primary_text:
+                    content_words_in_primary += 1
+                    score += 1.0  # Extra bonus for content words
+                elif word in secondary_text:
+                    content_words_in_secondary += 1
+                    score += 0.5  # Extra bonus for content words
+        
+        # Bonus for high content word ratio in primary text
+        content_words = [w for w in query_words if w not in stop_words]
+        if content_words:
+            content_word_ratio = content_words_in_primary / len(content_words)
+            if content_word_ratio == 1.0:  # All content words found
+                score += 2.0
+            elif content_word_ratio >= 0.5:
+                score += content_word_ratio * 1.0
+        
+        # Special bonus for exact phrase matching or high word coverage
+        query_phrase = ' '.join(query_words)
+        if query_phrase in primary_text:
+            score += 3.0  # Big bonus for exact phrase match in primary text
+        elif query_phrase in secondary_text:
+            score += 1.5  # Smaller bonus for exact phrase match in secondary text
+        
+        # Bonus for high word coverage (many query words found)
+        word_coverage_ratio = total_matches / len(query_words)
+        if word_coverage_ratio >= 0.5:  # At least half the words match
+            score += word_coverage_ratio * 1.0
+            
+        return score
 
 
 class AIWorker:
