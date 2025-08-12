@@ -575,6 +575,98 @@ class AIWorker:
         print("AI Agent: Final fallback response (no sources found)")
         return f"I'm ACD Direct's Knowledge Base AI System. I'm currently unable to access detailed information due to a temporary service issue. Please try again later or contact us directly."
 
+    async def _generate_ai_response_with_kb_check(self, question: str, search_results: List[Dict], tools_used: List[ToolUsage], project_name: str = None) -> Optional[str]:
+        """Generate AI response using OpenAI API with KB context and insufficient context detection"""
+        if not self.openai_client:
+            print("AI Agent: OpenAI client not available, skipping AI response generation")
+            return None
+        
+        try:
+            print("AI Agent: Preparing context for OpenAI API call with KB context check")
+            
+            # Prepare system prompt with insufficient context detection
+            system_prompt = f"""You are ACD Direct's Knowledge Base AI System, a helpful and knowledgeable assistant. 
+You have access to a comprehensive knowledge base and various tools to provide accurate information.
+
+Your primary role is to:
+1. Answer questions ONLY using the provided knowledge base context when available
+2. Use tool results when they provide current or specific information
+3. Introduce yourself appropriately when asked about your identity
+4. Be helpful, accurate, and conversational
+5. NEVER make up information that is not in the provided context
+6. If you don't have enough specific information in the context to properly answer the question, respond with "INSUFFICIENT_CONTEXT" followed by a brief explanation
+
+IMPORTANT: Only provide information that is explicitly available in the knowledge base context or tool results. Do not hallucinate or guess answers.
+
+If the provided context does not contain enough information to answer the question adequately, you MUST start your response with "INSUFFICIENT_CONTEXT" and then explain what information is missing.
+
+Project context: {project_name or 'Knowledge Base System'}"""
+
+            # Prepare context from search results - Expand context window
+            context_parts = []
+            if search_results:
+                context_parts.append("=== KNOWLEDGE BASE CONTEXT ===")
+                print(f"AI Agent: Including {len(search_results)} KB results in context")
+                for i, result in enumerate(search_results[:7], 1):  # Increased from 3 to 7 for better context
+                    if result.get('type') == 'faq':
+                        context_parts.append(f"{i}. FAQ - {result.get('question', 'N/A')}")
+                        context_parts.append(f"   Answer: {result.get('answer', 'N/A')}")
+                    else:
+                        context_parts.append(f"{i}. Article - {result.get('article', 'N/A')}")
+                        content = result.get('content', '')
+                        # Removed content truncation to preserve full context
+                        context_parts.append(f"   Content: {content}")
+                    context_parts.append("")
+            
+            # Add tool results context (if any from previous steps like datetime)
+            if tools_used:
+                context_parts.append("=== TOOL RESULTS ===")
+                print(f"AI Agent: Including {len(tools_used)} tool results in context")
+                for tool in tools_used:
+                    if tool.success and tool.result.get('data'):
+                        context_parts.append(f"Tool: {tool.tool_name}")
+                        context_parts.append(f"Result: {tool.result['data']}")
+                        context_parts.append("")
+            
+            # Prepare user message
+            context_text = "\n".join(context_parts) if context_parts else "No specific context available."
+            user_message = f"""Question: {question}
+
+Context:
+{context_text}
+
+Please provide a helpful response based ONLY on the question and available context above. 
+- If the context contains enough information to answer the question, provide it directly and clearly.
+- If the question is about your identity, introduce yourself as "ACD Direct's Knowledge Base AI System".
+- If the context does not contain enough information to answer the question properly, start your response with "INSUFFICIENT_CONTEXT" and explain what information would be needed to answer the question."""
+
+            print("AI Agent: Making OpenAI API call...")
+            
+            # Make OpenAI API call
+            response = await asyncio.to_thread(
+                self.openai_client.chat.completions.create,
+                model=self.openai_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                max_completion_tokens=1500  # Increased from 500 to allow for more comprehensive responses
+            )
+            
+            ai_answer = response.choices[0].message.content.strip()
+            print(f"AI Agent: OpenAI API call successful, generated {len(ai_answer)} character response")
+            
+            if "INSUFFICIENT_CONTEXT" in ai_answer:
+                print("AI Agent: AI indicated insufficient context for proper answer")
+            else:
+                print("AI Agent: AI successfully answered using available context")
+            
+            return ai_answer
+            
+        except Exception as e:
+            print(f"AI Agent Error: Failed to generate AI response: {str(e)}")
+            return None
+
     async def _generate_ai_response(self, question: str, search_results: List[Dict], tools_used: List[ToolUsage], project_name: str = None) -> Optional[str]:
         """Generate AI response using OpenAI API with RAG context"""
         if not self.openai_client:
@@ -740,18 +832,22 @@ Please provide a helpful response based ONLY on the question and available conte
                 relevance_score=result.get('score', 0.0)
             ))
         
-        # STEP 3: If no sufficient information exists, use web search tool
-        has_sufficient_kb_info = len(search_results) > 0 and any(
-            result.get('score', 0) > 15.0 for result in search_results  # High threshold ensures truly relevant matches
-        )
+        # STEP 3: Try to generate AI response with KB context first
+        print(f"\n--- STEP 3: Attempting AI Response with Knowledge Base Context ---")
+        print(f"AI Agent Context: Trying to answer using available KB context")
         
-        if not has_sufficient_kb_info and use_tools and not is_time_based:
-            print(f"\n--- STEP 3: Knowledge Base insufficient, using Web Search ---")
-            print(f"AI Agent Context: No high-confidence results in KB (threshold: 15.0)")
-            print(f"AI Agent: Attempting web search as fallback")
+        project_name = self.projects.get(project_id, "Knowledge Base")
+        ai_response = await self._generate_ai_response_with_kb_check(question, search_results, tools_used, project_name)
+        
+        # STEP 4: If AI indicates insufficient context and tools are enabled, try web search
+        needs_web_search = False
+        if ai_response and "INSUFFICIENT_CONTEXT" in ai_response and use_tools and not is_time_based:
+            print(f"\n--- STEP 4: AI indicates insufficient context, using Web Search ---")
+            print(f"AI Agent Context: AI determined KB context insufficient, attempting web search")
+            needs_web_search = True
             
             try:
-                # Use web search tool when KB is insufficient
+                # Use web search tool when AI indicates KB is insufficient
                 web_search_params = self._prepare_tool_parameters("web_search", question)
                 print(f"AI Agent: Executing web search with params: {web_search_params}")
                 
@@ -775,28 +871,37 @@ Please provide a helpful response based ONLY on the question and available conte
                     execution_time=web_tool_result.execution_time
                 ))
                 
+                # Regenerate AI response with both KB and web search results
+                print(f"AI Agent Context: Regenerating response with KB + web search context")
+                ai_response = await self._generate_ai_response(question, search_results, tools_used, project_name)
+                
             except Exception as e:
                 print(f"AI Agent Error: Failed to execute web search: {str(e)}")
+                # Remove INSUFFICIENT_CONTEXT marker from response since web search failed
+                if ai_response and "INSUFFICIENT_CONTEXT" in ai_response:
+                    ai_response = ai_response.replace("INSUFFICIENT_CONTEXT", "").strip()
         
-        elif has_sufficient_kb_info:
-            print(f"\n--- STEP 3: Knowledge Base sufficient, skipping web search ---")
-            print(f"AI Agent Context: Found high-confidence results in knowledge base")
-        else:
-            print(f"\n--- STEP 3: Skipping web search (time-based query or tools disabled) ---")
+        elif ai_response and "INSUFFICIENT_CONTEXT" not in ai_response:
+            print(f"\n--- STEP 4: AI successfully answered with Knowledge Base context ---")
+            print(f"AI Agent Context: AI found sufficient information in KB context")
+        elif not use_tools or is_time_based:
+            print(f"\n--- STEP 4: Skipping web search (time-based query or tools disabled) ---")
+            if ai_response and "INSUFFICIENT_CONTEXT" in ai_response:
+                ai_response = ai_response.replace("INSUFFICIENT_CONTEXT", "").strip()
         
-        # STEP 4: Generate final answer using AI agent
-        print(f"\n--- STEP 4: Generating AI Response ---")
-        print(f"AI Agent Context: Combining KB results and tool outputs into final answer")
-        
-        project_name = self.projects.get(project_id, "Knowledge Base")
-        ai_response = await self._generate_ai_response(question, search_results, tools_used, project_name)
+        # STEP 5: Final response generation and fallback handling
+        print(f"\n--- STEP 5: Finalizing Response ---")
+        print(f"AI Agent Context: Preparing final response")
         
         if not ai_response:
             print(f"AI Agent: AI response generation failed, using fallback")
             # Intelligent fallback when AI is unavailable
             ai_response = self._generate_fallback_response(question, search_results, tools_used, project_name)
         else:
-            print(f"AI Agent: Successfully generated AI response ({len(ai_response)} characters)")
+            # Clean up any remaining INSUFFICIENT_CONTEXT markers
+            if "INSUFFICIENT_CONTEXT" in ai_response:
+                ai_response = ai_response.replace("INSUFFICIENT_CONTEXT", "").strip()
+            print(f"AI Agent: Successfully generated final response ({len(ai_response)} characters)")
         
         print(f"AI Agent: Process completed with {len(tools_used)} tools used and {len(sources)} sources")
         print(f"=== AI AGENT PROCESSING COMPLETE ===\n")
