@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 try:
     import numpy as np
-    from sentence_transformers import SentenceTransformer
+    from sentence_transformers import SentenceTransformer, CrossEncoder
     import faiss
     from whoosh.index import open_dir
     from whoosh.qparser import QueryParser
@@ -59,7 +59,7 @@ class QueryResponse(BaseModel):
 
 
 class KnowledgeBaseRetriever:
-    """Retrieves information from prebuilt indexes"""
+    """Enhanced retriever with RRF, cross-encoder re-ranking, and chunking support"""
     
     def __init__(self, project_id: str, base_dir: str = "."):
         self.project_id = project_id
@@ -75,8 +75,10 @@ class KnowledgeBaseRetriever:
         self.dense_metadata = None
         self.sparse_index = None
         self.embedding_model = None
+        self.cross_encoder = None
         
         self._load_indexes()
+        self._load_cross_encoder()
     
     def _load_metadata(self) -> Dict:
         """Load index metadata"""
@@ -93,19 +95,36 @@ class KnowledgeBaseRetriever:
             return
         
         try:
-            # Load dense index
+            # Load dense index (check for HNSW first, then fallback to flat)
             if self.metadata.get('indexes', {}).get('dense', {}).get('available'):
                 dense_dir = self.index_dir / "dense"
-                index_file = dense_dir / "faiss.index"
+                
+                # Try to load HNSW index first
+                hnsw_index_file = dense_dir / "faiss_hnsw.index"
+                flat_index_file = dense_dir / "faiss.index"
                 metadata_file = dense_dir / "metadata.json"
                 
-                if index_file.exists() and metadata_file.exists():
+                index_file = None
+                if hnsw_index_file.exists():
+                    index_file = hnsw_index_file
+                    print(f"  Loading HNSW index for {self.project_id}")
+                elif flat_index_file.exists():
+                    index_file = flat_index_file
+                    print(f"  Loading flat index for {self.project_id}")
+                
+                if index_file and metadata_file.exists():
                     self.dense_index = faiss.read_index(str(index_file))
                     with open(metadata_file, 'r', encoding='utf-8') as f:
                         self.dense_metadata = json.load(f)
                     
-                    # Load embedding model
-                    self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+                    # Load appropriate embedding model
+                    embedding_model_name = self.metadata.get('versions', {}).get('embedding_model')
+                    if embedding_model_name and 'bge' in embedding_model_name.lower():
+                        print(f"  Loading BGE embedding model...")
+                        self.embedding_model = SentenceTransformer('BAAI/bge-small-en-v1.5')
+                    else:
+                        print(f"  Loading MiniLM embedding model...")
+                        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
             
             # Load sparse index
             if self.metadata.get('indexes', {}).get('sparse', {}).get('available'):
@@ -116,24 +135,40 @@ class KnowledgeBaseRetriever:
         except Exception as e:
             print(f"Warning: Could not load indexes for {self.project_id}: {e}")
     
-    def search_dense(self, query: str, top_k: int = 5) -> List[Dict]:
-        """Search using dense vector similarity"""
+    def _load_cross_encoder(self):
+        """Load cross-encoder for re-ranking"""
+        if not HAS_DEPS:
+            return
+            
+        try:
+            print(f"  Loading cross-encoder for re-ranking...")
+            self.cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+            print(f"  ✅ Cross-encoder loaded successfully")
+        except Exception as e:
+            print(f"  Warning: Could not load cross-encoder: {e}")
+            self.cross_encoder = None
+    
+    def search_dense(self, query: str, top_k: int = 10) -> List[Dict]:
+        """Search using enhanced dense vector similarity with proper normalization"""
         if not self.dense_index or not self.embedding_model:
             return []
         
         try:
             # Generate query embedding
             query_embedding = self.embedding_model.encode([query], convert_to_numpy=True)
+            
+            # Normalize query embedding consistently (L2 normalization)
             faiss.normalize_L2(query_embedding)
             
-            # Search
+            # Search with more candidates for RRF
             scores, indices = self.dense_index.search(query_embedding.astype('float32'), top_k)
             
             results = []
             for score, idx in zip(scores[0], indices[0]):
-                if idx < len(self.dense_metadata):
+                if idx != -1 and idx < len(self.dense_metadata):  # Check for valid indices
                     result = self.dense_metadata[idx].copy()
                     result['score'] = float(score)
+                    result['rank'] = len(results) + 1  # Add rank for RRF
                     results.append(result)
             
             return results
@@ -141,8 +176,8 @@ class KnowledgeBaseRetriever:
             print(f"Dense search error: {e}")
             return []
     
-    def search_sparse(self, query: str, top_k: int = 5) -> List[Dict]:
-        """Search using sparse text search"""
+    def search_sparse(self, query: str, top_k: int = 10) -> List[Dict]:
+        """Search using enhanced sparse text search"""
         if not self.sparse_index:
             return []
         
@@ -154,15 +189,19 @@ class KnowledgeBaseRetriever:
                 results = []
                 search_results = searcher.search(parsed_query, limit=top_k)
                 
-                for hit in search_results:
+                for rank, hit in enumerate(search_results, 1):
                     results.append({
                         'id': hit['id'],
+                        'original_id': hit.get('original_id', hit['id']),  # Support chunked results
                         'type': hit['type'],
                         'score': hit.score,
+                        'rank': rank,  # Add rank for RRF
                         'question': hit.get('question', ''),
                         'answer': hit.get('answer', ''),
                         'article': hit.get('title', ''),
-                        'content': hit.get('content', '')
+                        'content': hit.get('content', ''),
+                        'chunk_index': hit.get('chunk_index', 0),
+                        'total_chunks': hit.get('total_chunks', 1)
                     })
                 
                 return results
@@ -170,37 +209,125 @@ class KnowledgeBaseRetriever:
             print(f"Sparse search error: {e}")
             return []
     
+    def _reciprocal_rank_fusion(self, dense_results: List[Dict], sparse_results: List[Dict], k: int = 60) -> List[Dict]:
+        """Implement Reciprocal Rank Fusion (RRF) to combine dense and sparse results"""
+        # RRF formula: score = 1 / (k + rank)
+        # where k is a constant (typically 60) and rank is the position in the ranking
+        
+        rrf_scores = {}
+        all_results = {}
+        
+        # Process dense results
+        for result in dense_results:
+            doc_id = result.get('original_id', result.get('id'))
+            rank = result.get('rank', 1)
+            rrf_score = 1.0 / (k + rank)
+            
+            if doc_id not in rrf_scores:
+                rrf_scores[doc_id] = 0.0
+                all_results[doc_id] = result.copy()
+                all_results[doc_id]['fusion_sources'] = []
+            
+            rrf_scores[doc_id] += rrf_score
+            all_results[doc_id]['fusion_sources'].append('dense')
+            all_results[doc_id]['dense_score'] = result.get('score', 0.0)
+            all_results[doc_id]['dense_rank'] = rank
+        
+        # Process sparse results
+        for result in sparse_results:
+            doc_id = result.get('original_id', result.get('id'))
+            rank = result.get('rank', 1)
+            rrf_score = 1.0 / (k + rank)
+            
+            if doc_id not in rrf_scores:
+                rrf_scores[doc_id] = 0.0
+                all_results[doc_id] = result.copy()
+                all_results[doc_id]['fusion_sources'] = []
+            
+            rrf_scores[doc_id] += rrf_score
+            all_results[doc_id]['fusion_sources'].append('sparse')
+            all_results[doc_id]['sparse_score'] = result.get('score', 0.0)
+            all_results[doc_id]['sparse_rank'] = rank
+        
+        # Sort by RRF score and prepare final results
+        sorted_docs = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+        
+        fused_results = []
+        for doc_id, rrf_score in sorted_docs:
+            result = all_results[doc_id]
+            result['rrf_score'] = rrf_score
+            result['search_type'] = 'rrf'
+            fused_results.append(result)
+        
+        return fused_results
+    
+    def _cross_encoder_rerank(self, query: str, results: List[Dict], top_k: int = 5) -> List[Dict]:
+        """Re-rank results using cross-encoder for better relevance"""
+        if not self.cross_encoder or not results:
+            return results[:top_k]
+        
+        try:
+            # Prepare query-document pairs for cross-encoder
+            query_doc_pairs = []
+            for result in results:
+                # Create document text from available content
+                if result.get('type') == 'faq':
+                    doc_text = f"Q: {result.get('question', '')} A: {result.get('answer', '')}"
+                else:
+                    article = result.get('article', '')
+                    content = result.get('content', '')
+                    doc_text = f"Title: {article} Content: {content}" if article else content
+                
+                query_doc_pairs.append([query, doc_text[:512]])  # Limit text length for cross-encoder
+            
+            # Get cross-encoder scores
+            ce_scores = self.cross_encoder.predict(query_doc_pairs)
+            
+            # Update results with cross-encoder scores
+            for i, result in enumerate(results):
+                result['ce_score'] = float(ce_scores[i])
+                result['search_type'] = 'cross_encoder'
+            
+            # Sort by cross-encoder score
+            results.sort(key=lambda x: x.get('ce_score', 0), reverse=True)
+            
+            return results[:top_k]
+            
+        except Exception as e:
+            print(f"Cross-encoder re-ranking error: {e}")
+            # Fallback to RRF ranking
+            return results[:top_k]
+    
     def search(self, query: str, top_k: int = 5) -> List[Dict]:
-        """Hybrid search combining dense and sparse results"""
-        dense_results = self.search_dense(query, top_k)
-        sparse_results = self.search_sparse(query, top_k)
+        """Enhanced hybrid search with RRF and cross-encoder re-ranking"""
+        # Get more candidates for fusion (2x the final target)
+        candidate_count = max(top_k * 2, 10)
+        
+        dense_results = self.search_dense(query, candidate_count)
+        sparse_results = self.search_sparse(query, candidate_count)
         
         # If no ML-based search available, use basic text matching
         if not dense_results and not sparse_results:
             return self.search_basic(query, top_k)
         
-        # Combine and deduplicate results
-        seen_ids = set()
-        combined_results = []
+        # Apply Reciprocal Rank Fusion
+        if dense_results and sparse_results:
+            print(f"  Applying RRF to {len(dense_results)} dense + {len(sparse_results)} sparse results")
+            fused_results = self._reciprocal_rank_fusion(dense_results, sparse_results)
+        elif dense_results:
+            fused_results = dense_results
+            for result in fused_results:
+                result['search_type'] = 'dense_only'
+        else:
+            fused_results = sparse_results
+            for result in fused_results:
+                result['search_type'] = 'sparse_only'
         
-        # Add dense results first (usually better for semantic similarity)
-        for result in dense_results:
-            if result['id'] not in seen_ids:
-                result['search_type'] = 'dense'
-                combined_results.append(result)
-                seen_ids.add(result['id'])
+        # Apply cross-encoder re-ranking to top candidates
+        rerank_candidates = min(candidate_count, len(fused_results))
+        final_results = self._cross_encoder_rerank(query, fused_results[:rerank_candidates], top_k)
         
-        # Add sparse results
-        for result in sparse_results:
-            if result['id'] not in seen_ids:
-                result['search_type'] = 'sparse'
-                combined_results.append(result)
-                seen_ids.add(result['id'])
-        
-        # Sort by score (descending)
-        combined_results.sort(key=lambda x: x.get('score', 0), reverse=True)
-        
-        return combined_results[:top_k]
+        return final_results
     
     def search_basic(self, query: str, top_k: int = 5) -> List[Dict]:
         """Basic text search fallback when dependencies aren't available"""
@@ -227,11 +354,14 @@ class KnowledgeBaseRetriever:
                 if score > 0:
                     results.append({
                         'id': faq.id,
+                        'original_id': faq.id,
                         'type': 'faq',
                         'score': score,
                         'question': faq.question,
                         'answer': faq.answer,
-                        'search_type': 'basic'
+                        'search_type': 'basic',
+                        'chunk_index': 0,
+                        'total_chunks': 1
                     })
             
             # Search in KB entries
@@ -250,11 +380,14 @@ class KnowledgeBaseRetriever:
                 if score > 0:
                     results.append({
                         'id': kb.id,
+                        'original_id': kb.id,
                         'type': 'kb',
                         'score': score,
                         'article': kb.article,
                         'content': kb.content,
-                        'search_type': 'basic'
+                        'search_type': 'basic',
+                        'chunk_index': 0,
+                        'total_chunks': 1
                     })
             
             # Sort by score (descending) and return top results
@@ -357,24 +490,46 @@ class AIWorker:
         # Search for relevant content in KB
         search_results = retriever.search(question, top_k=5)
         
-        # Generate sources
+        # Generate sources with better chunk handling
         sources = []
+        seen_original_ids = set()  # Track original documents to avoid duplicates
+        
         for result in search_results:
+            original_id = result.get('original_id', result.get('id'))
             source_type = result.get('type', 'unknown')
+            
+            # Skip if we've already included this original document
+            if original_id in seen_original_ids:
+                continue
+            seen_original_ids.add(original_id)
             
             if source_type == 'faq':
                 title = f"FAQ: {result.get('question', 'Unknown Question')}"
-                url = f"/v1/projects/{project_id}/faqs/{result['id']}"
+                url = f"/v1/projects/{project_id}/faqs/{original_id}"
             else:
                 title = result.get('article', 'Unknown Article')
-                url = f"/v1/projects/{project_id}/kb/{result['id']}"
+                url = f"/v1/projects/{project_id}/kb/{original_id}"
+            
+            # Add chunking info to title if applicable
+            chunk_info = ""
+            if result.get('total_chunks', 1) > 1:
+                chunk_idx = result.get('chunk_index', 0)
+                total_chunks = result.get('total_chunks', 1)
+                chunk_info = f" (chunk {chunk_idx + 1}/{total_chunks})"
+            
+            # Include search method info in title
+            search_info = ""
+            if result.get('search_type') == 'cross_encoder':
+                search_info = f" [CE: {result.get('ce_score', 0):.3f}]"
+            elif result.get('search_type') == 'rrf':
+                search_info = f" [RRF: {result.get('rrf_score', 0):.3f}]"
             
             sources.append(Source(
-                id=result['id'],
+                id=original_id,
                 type=source_type,
-                title=title,
+                title=title + chunk_info + search_info,
                 url=url,
-                relevance_score=result.get('score', 0.0)
+                relevance_score=result.get('ce_score', result.get('rrf_score', result.get('score', 0.0)))
             ))
         
         # Use tools if enabled and appropriate
