@@ -388,7 +388,7 @@ class IndexBuilder:
         
         metadata = {
             "project_id": self.project_id,
-            "created_at": datetime.now(datetime.timezone.utc).isoformat(),
+            "created_at": datetime.now().isoformat(),
             "counts": {
                 "faqs": len(faqs),
                 "kb_entries": len(kb_entries),

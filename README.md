@@ -1,9 +1,22 @@
 # DARKBO - Document Augmented Retrieval Knowledge Base Operator
 
-A simplified AI knowledge base system with external tools support:
+A simplified AI knowledge base system with external tools support and **enhanced embedding & indexing**:
 
-1. **prebuild_kb.py** - Builds vector stores and search indexes from FAQ/KB data
-2. **ai_worker.py** - FastAPI server that answers questions with source citations and external tools
+1. **prebuild_kb.py** - Builds vector stores and search indexes from FAQ/KB data with BGE embeddings, HNSW indexing, and document chunking
+2. **ai_worker.py** - FastAPI server that answers questions with source citations, external tools, RRF fusion, and cross-encoder re-ranking
+
+## 🚀 Enhanced Features (NEW)
+
+DARKBO now includes significant improvements to embedding and indexing:
+
+- **🧠 BGE Embeddings**: Upgraded from MiniLM to BAAI/bge-small-en for better semantic accuracy
+- **📊 HNSW Indexing**: Scalable similarity search with logarithmic complexity (vs flat indexes)  
+- **📄 Document Chunking**: Intelligent 400±50 token chunks with overlap for better granularity
+- **🔀 Rank Fusion**: Reciprocal Rank Fusion (RRF) combines semantic + keyword search optimally
+- **🎯 Cross-Encoder Re-ranking**: Final relevance scoring with cross-encoder models
+- **⚙️ Consistent Normalization**: L2 normalization throughout for efficient cosine similarity
+
+See [ENHANCED_FEATURES.md](ENHANCED_FEATURES.md) for complete technical details.
 
 ## 🛠️ New Tools Framework
 
@@ -73,8 +86,8 @@ Install Python 3.8+ and required dependencies:
 # Minimal installation (metadata-only indexes)
 pip install fastapi uvicorn pydantic
 
-# Full installation (with vector search capabilities)
-pip install fastapi uvicorn pydantic sentence-transformers faiss-cpu whoosh numpy
+# Full installation (with enhanced vector search capabilities)
+pip install fastapi uvicorn pydantic sentence-transformers faiss-cpu whoosh numpy transformers
 
 # Optional: Enhanced answer generation
 pip install openai
@@ -285,8 +298,8 @@ export OPENAI_API_KEY=your_key_here
 
 - **Simple Two-Script Architecture**: Just prebuild_kb.py and ai_worker.py
 - **External Tools Support**: DateTime and web search tools with extensible framework
-- **Hybrid Vector Store**: Combines dense (semantic) and sparse (keyword) search when dependencies available
-- **Confirmed Vector Approach**: Uses FAISS for dense vectors + Whoosh for sparse text + basic fallback
+- **Enhanced Hybrid Vector Store**: BGE embeddings + HNSW indexing + document chunking + RRF fusion
+- **Intelligent Search**: Combines dense (semantic) and sparse (keyword) search with cross-encoder re-ranking
 - **Source Citations**: All answers include clickable source links
 - **Tool-Enhanced Responses**: Automatically uses tools to provide current information
 - **File Attachments**: Serves original files when available
@@ -296,10 +309,10 @@ export OPENAI_API_KEY=your_key_here
 ## 📋 Scripts Overview
 
 ### prebuild_kb.py
-- Processes FAQ and KB JSON files
-- Builds FAISS dense vector indexes (semantic search) when dependencies available
-- Builds Whoosh sparse text indexes (keyword search) when dependencies available
-- Creates metadata for change detection
+- Processes FAQ and KB JSON files with intelligent chunking
+- Builds enhanced FAISS HNSW vector indexes with BGE embeddings  
+- Builds enhanced Whoosh sparse text indexes with chunked content
+- Creates comprehensive metadata for change detection and performance tracking
 - Works with or without ML dependencies (graceful degradation)
 
 ### ai_worker.py
